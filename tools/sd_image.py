@@ -9,8 +9,12 @@ VOLUME_SIZE = 8 * 1024 * 1024
 FAT_START = 2048
 FAT_SECTORS = 64 * 1024 * 1024 // SECTOR
 FAT_CLUSTER_SECTORS = 1
-STARTS = (FAT_START + FAT_SECTORS, FAT_START + FAT_SECTORS + VOLUME_SIZE // SECTOR)
-IMAGE_SIZE = (STARTS[1] + VOLUME_SIZE // SECTOR) * SECTOR
+SD_DRIVES = 11
+LABELS = ('SYSTEM', 'TOOLS', 'ZORK', 'GAMES', 'BASIC', 'ASM',
+          'SOURCE', 'DOCS', 'DATA', 'EXTRA 1', 'EXTRA 2')
+STARTS = tuple(FAT_START + FAT_SECTORS + i * (VOLUME_SIZE // SECTOR)
+               for i in range(SD_DRIVES))
+IMAGE_SIZE = (STARTS[-1] + VOLUME_SIZE // SECTOR) * SECTOR
 BLOCK = 4096
 DIRECTORY_ENTRIES = 512
 DIRECTORY_BLOCKS = 4
@@ -106,12 +110,17 @@ def make_volume(paths=()):
     return volume
 
 
-def create_image(path, files_a=(), files_b=()):
+def create_image(path, files_a=(), files_b=(), *, files_by_drive=None):
     # Validate and construct before opening the destination; never overwrite.
-    volumes = (make_volume(files_a), make_volume(files_b))
+    files = {0: files_a, 1: files_b}
+    if files_by_drive:
+        if any(not isinstance(d, int) or not 0 <= d < SD_DRIVES for d in files_by_drive):
+            raise ValueError('SD drive index must be 0..10 (A:..K:)')
+        files.update(files_by_drive)
+    volumes = [make_volume(files.get(d, ())) for d in range(SD_DRIVES)]
     mbr = bytearray(SECTOR)
     partitions = ((0x0c, FAT_START, FAT_SECTORS),
-                  *((0x52, start, VOLUME_SIZE // SECTOR) for start in STARTS))
+                  (0x52, STARTS[0], SD_DRIVES * VOLUME_SIZE // SECTOR))
     for i, (kind, start, size) in enumerate(partitions):
         struct.pack_into('<B3sB3sII', mbr, 446 + 16 * i,
                          0, b'\xfe\xff\xff', kind, b'\xfe\xff\xff', start, size)
@@ -144,18 +153,26 @@ def main():
     parser.add_argument('--kernel', type=Path, help='Install a built 16 KiB kernel')
     parser.add_argument('--a', nargs='*', default=[], metavar='FILE')
     parser.add_argument('--b', nargs='*', default=[], metavar='FILE')
+    parser.add_argument('--drive', action='append', nargs='+', default=[], metavar='LETTER_OR_FILE',
+                        help='Populate an SD drive: --drive C FILE... (A through K; repeatable)')
     args = parser.parse_args()
     try:
         kernel = args.kernel.read_bytes() if args.kernel else None
         if kernel is not None and (len(kernel) != 16384 or kernel[3:11] != b'P2MCPM01'):
             raise ValueError('Invalid kernel')
-        create_image(args.output, args.a, args.b)
+        files_by_drive = {}
+        for group in args.drive:
+            letter = group[0].upper().rstrip(':')
+            if len(letter) != 1 or not 'A' <= letter <= 'K':
+                raise ValueError('--drive expects A through K followed by files')
+            files_by_drive.setdefault(ord(letter) - ord('A'), []).extend(group[1:])
+        create_image(args.output, args.a, args.b, files_by_drive=files_by_drive)
         if kernel is not None:
             install_kernel(args.output, kernel)
     except (ValueError, OSError) as error:
         parser.exit(1, f'{error}\n')
     status = 'kernel installed' if args.kernel else 'data-only image'
-    print(f'Created {args.output}: 64 MiB FAT32, two 8 MiB CP/M volumes; {status}.')
+    print(f'Created {args.output}: 64 MiB FAT32, eleven 8 MiB CP/M volumes A:..K:; {status}.')
 
 
 if __name__ == '__main__':

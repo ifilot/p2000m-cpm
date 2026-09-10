@@ -263,6 +263,11 @@ terminal_clear:
     ld bc,1919
     ld (hl),' '
     ldir
+    ld hl,0xf800
+    ld de,0xf801
+    ld bc,1919
+    ld (hl),0
+    ldir
     ld hl,0xf000
     ld (cursor),hl
     xor a
@@ -285,8 +290,18 @@ terminal_done:
 ; Falls into terminal_scroll with HL pointing to the proposed next cursor.
 ; ----------------------------------------------------------------------------
 terminal_char:
+    ; ASCII '#' is sterling in the P2000 character ROM; native hash is 5Fh.
+    cp '#'
+    jr nz,terminal_native
+    ld a,0x5f
+terminal_native:
     ld hl,(cursor)
     ld (hl),a
+    push hl
+    ld de,0x0800
+    add hl,de
+    ld (hl),0
+    pop hl
     inc hl
     ld a,(column)
     inc a
@@ -323,6 +338,16 @@ terminal_scroll:
     ld de,0xf731
     ld bc,79
     ld (hl),' '
+    ldir
+    ; Move inverse headings with their text; clear attributes in the new row.
+    ld hl,0xf850
+    ld de,0xf800
+    ld bc,1840
+    ldir
+    ld hl,0xff30
+    ld de,0xff31
+    ld bc,79
+    ld (hl),0
     ldir
     pop hl
     ld de,80

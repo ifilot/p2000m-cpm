@@ -48,13 +48,40 @@ static unsigned bdos(P2000Machine &m,unsigned fn,unsigned arg=0) {
     require(m.peekMemory(0x9e41)==0x5a,"BDOS call timed out");
     return m.peekMemory(0x9e40);
 }
-static void fcb(P2000Machine &m,const std::string &name,unsigned drive=3) {
+static void fcb(P2000Machine &m,const std::string &name,unsigned drive=12) {
     for(unsigned i=0;i<36;++i)m.pokeMemory(0x8200+i,0);
     m.pokeMemory(0x8200,drive);
     require(name.size()==11,"Test FCB name length");
     for(unsigned i=0;i<11;++i)m.pokeMemory(0x8201+i,name[i]);
 }
 static void edge_tests(P2000Machine &m) {
+    // Exercise twelve independent namespaces and the full 16-bit BDOS masks.
+    bdos(m,13);
+    bdos(m,26,0x8300);
+    for(unsigned drive=0;drive<12;++drive) {
+        fcb(m,"DRIVETSTDAT",drive+1);
+        require(bdos(m,22,0x8200)!=255,"Create file on drive "+std::to_string(drive));
+        for(unsigned i=0;i<128;++i)m.pokeMemory(0x8300+i,drive*17+i);
+        require(bdos(m,21,0x8200)==0,"Write drive fixture");
+        require(bdos(m,16,0x8200)!=255,"Close drive fixture");
+    }
+    bdos(m,24);
+    require((m.peekMemory(0x9e42)|(m.peekMemory(0x9e43)<<8))==0xfff,"Login mask lost high drives");
+    for(unsigned drive=0;drive<12;++drive) {
+        fcb(m,"DRIVETSTDAT",drive+1);
+        require(bdos(m,15,0x8200)!=255 && bdos(m,20,0x8200)==0,"Read drive fixture");
+        for(unsigned i=0;i<128;++i)
+            require(m.peekMemory(0x8300+i)==((drive*17+i)&255),"BDOS drive alias");
+        require(bdos(m,19,0x8200)!=255,"Delete drive fixture");
+        bdos(m,14,drive);bdos(m,28);
+        require(bdos(m,22,0x8200)==255,"Protected drive accepted create");
+    }
+    bdos(m,29);
+    require((m.peekMemory(0x9e42)|(m.peekMemory(0x9e43)<<8))==0xfff,"Protection mask lost high drives");
+    bdos(m,37,0x500);bdos(m,29);
+    require((m.peekMemory(0x9e42)|(m.peekMemory(0x9e43)<<8))==0xaff,"Selective high-drive reset failed");
+    require(bdos(m,14,12)==255,"BDOS accepted drive M:");
+    bdos(m,13);
     bdos(m,26,0x8300);
     fcb(m,"SPARSE  DAT");
     require(bdos(m,22,0x8200)!=255,"Create sparse file");
@@ -99,9 +126,9 @@ static void edge_tests(P2000Machine &m) {
     require(bdos(m,19,0x8200)!=255,"Wildcard directory cleanup failed");
     fcb(m,"RECLAIM DAT");
     require(bdos(m,22,0x8200)!=255,"Directory space was not reclaimed");
-    bdos(m,14,2);bdos(m,28);
+    bdos(m,14,11);bdos(m,28);
     require(bdos(m,21,0x8200)==255,"Protected disk write accepted");
-    bdos(m,37,4);
+    bdos(m,37,0x800);
     require(bdos(m,21,0x8200)==0,"Drive reset did not clear protection");
     std::cout << "PASS: sparse 8 MiB logical file, zero fill, overflow, attributes, user isolation, full directory/reclaim, drive protection" << std::endl;
 }
@@ -195,10 +222,67 @@ static void program_test(P2000Machine &m,const std::string &name) {
         type(m,"E\n");prompt(m);
     } else if(name=="STAT") {
         type(m,"STAT\n");prompt(m);wait_text(m,"R/W, Space:");
+        type(m,"STAT A:DSK:\n");prompt(m);wait_text(m,"8192: Kilobyte Drive  Capacity");
+        type(m,"STAT A:HELLO.COM\n");prompt(m);wait_text(m,"Recs");wait_text(m,"HELLO.COM");
+    } else if(name=="SYNC") {
+        type(m,"SYNC\n");prompt(m);wait_text(m,"SYNC: SD cache flushed");
+    } else if(name=="DIR") {
+        type(m,"DIR *.COM\n");prompt(m);
+        const auto listing=screen(m);
+        bool multi=false;
+        for(unsigned row=0;row<24;++row) {
+            auto line=listing.substr(row*80,80);
+            auto first=line.find(".COM");
+            if(first!=std::string::npos && line.find(".COM",first+4)!=std::string::npos)
+                multi=true;
+        }
+        require(multi,"DIR did not print multiple files per row");
+    } else if(name=="RAMTEST") {
+        type(m,"COPY A:HELLO.COM L:KEEP.COM\n");prompt(m);
+        m.pokeMemory(0x9000,0);type(m,"RAMTEST\n");
+        for(int i=0;i<1000 && m.peekMemory(0x9000)==0;++i)frames(m,100);
+        require(m.peekMemory(0x9000)==0xa5,"RAMTEST failed");
+        prompt(m);wait_text(m,"RAMTEST PASS");
+        type(m,"L:KEEP\n");prompt(m);wait_text(m,"Hello from an original Z80");
+        type(m,"DIR L:RAMTEST.DAT\n");prompt(m);
+        // Independently ask BDOS: successful test removes only its own file.
+        fcb(m,"RAMTEST DAT");
+        require(bdos(m,15,0x8200)==255,"RAMTEST left its test file behind");
+    } else if(name=="RAMEXISTS") {
+        type(m,"COPY A:HELLO.COM L:RAMTEST.DAT\n");prompt(m);
+        m.pokeMemory(0x9000,0);type(m,"RAMTEST\n");prompt(m);
+        require(m.peekMemory(0x9000)==0xee,"RAMTEST overwrote an existing test file");
+        wait_text(m,"already exists; no files changed");
+        fcb(m,"RAMTEST DAT");
+        require(bdos(m,15,0x8200)!=255,"Existing RAMTEST.DAT vanished");
+        bdos(m,26,0x8300);
+        require(bdos(m,20,0x8200)==0 && m.peekMemory(0x8300)==0x11,
+                "Existing test file contents changed");
+    } else if(name=="CPMABORT") {
+        m.pokeMemory(0x9000,0);type(m,"CPMTEST\n");
+        wait_text(m,"Write patterns [");
+        m.setKey(4,0,true);frames(m,300); // Escape prefix, held across I/O.
+        m.setKey(4,0,false);frames(m,300);
+        m.setKey(3,4,true); // C -> Ctrl-C through the console escape prefix.
+        for(int i=0;i<100 && m.peekMemory(0x9000)==0;++i)frames(m,100);
+        m.setKey(3,4,false);
+        require(m.peekMemory(0x9000)==0xcc,"CPMTEST did not abort between records");
+        prompt(m);wait_text(m,"CPMTEST ABORTED");
+    } else if(name=="ZORK1" || name=="ZORK2" || name=="ZORK3") {
+        type(m,"C:\n");frames(m,50);
+        type(m,name+"\n");
+        wait_text(m,name=="ZORK1"?"West of House":name=="ZORK2"?"Inside the Barrow":"Endless Stair");
+        type(m,"LOOK\n");frames(m,300);
+        require(screen(m).find("Error: command")==std::string::npos,"Zork failed after LOOK");
     } else if(name=="CPMTEST") {
         m.pokeMemory(0x9000,0);type(m,"CPMTEST\n");
+        wait_text(m,"Write patterns [");
+        wait_text(m,"030/600");
         for(int i=0;i<1000 && m.peekMemory(0x9000)==0;++i)frames(m,200);
         require(m.peekMemory(0x9000)==0xa5,"CPMTEST failed");prompt(m);wait_text(m,"CPMTEST PASS");
+        // Native P2000 code 5Fh draws '#'; ASCII 23h would draw sterling.
+        wait_text(m,"Read and verify [____________________] 600/600 OK");
+        wait_text(m,"Random read: record 513 ...  OK");
     } else throw std::runtime_error("Unknown isolated program");
     std::cout << "PASS: isolated " << name << std::endl;
 }
@@ -230,10 +314,10 @@ int main(int argc,char **argv) {
         std::cout << "PIP returned" << std::endl;
         type(m,"B:HELLO\n");prompt(m);
         require(screen(m).find("Hello from an original Z80")!=std::string::npos,"PIP copy did not execute");
-        type(m,"COPY A:HELLO.COM C:HELLO.COM\n");prompt(m);
+        type(m,"COPY A:HELLO.COM L:HELLO.COM\n");prompt(m);
         require(screen(m).find("Copy complete.")!=std::string::npos,"Original COPY failed");
-        type(m,"C:HELLO\n");prompt(m);
-        type(m,"ERA C:HELLO.COM\n");prompt(m);
+        type(m,"L:HELLO\n");prompt(m);
+        type(m,"ERA L:HELLO.COM\n");prompt(m);
         type(m,"REN B:NEW.COM=B:HELLO.COM\n");prompt(m);
         type(m,"B:NEW\n");prompt(m);
         type(m,"SAVE 1 B:SAVED.COM\n");prompt(m);
@@ -267,7 +351,7 @@ int main(int argc,char **argv) {
                 "Oversized COM was not rejected");
         edge_tests(m);
         std::cout << "PASS: PIP, STAT, ASM/LOAD toolchain, DUMP, DDT and ED run on the original BDOS" << std::endl;
-        std::cout << "PASS: CCP loads COM, BDOS sequential/random files span extents and both RAM banks on A/B/C, close/reopen/size/delete" << std::endl;
+        std::cout << "PASS: CCP loads COM, BDOS sequential/random files span extents and both RAM banks on L:, close/reopen/size/delete" << std::endl;
     } catch(const std::exception &e) {
         std::cerr << e.what() << "; PC=" << std::hex << m.programCounter() << '\n';
         for(int row=0;row<24;++row) std::cerr << screen(m).substr(row*80,80) << '\n';

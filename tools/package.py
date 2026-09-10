@@ -15,7 +15,8 @@ def main():
         with gzip.GzipFile(filename='', mode='wb', fileobj=target, mtime=0) as compressed:
             shutil.copyfileobj(source, compressed, 1024 * 1024)
     lines = []
-    for path in (BUILD / 'cartridge.bin', BUILD / 'kernel.bin', image, packed):
+    for path in (BUILD / 'cartridge.bin', BUILD / 'kernel.bin', image, packed,
+                 BUILD / 'build-info.json', *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'SYNC'))):
         with path.open('rb') as source:
             digest = hashlib.file_digest(source, 'sha256').hexdigest()
         lines.append(f'{digest}  {path.name}\n')

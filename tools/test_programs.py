@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 import subprocess
 import tempfile
+import shutil
 import unittest
 from build import CORE_FILES
 from sd_image import create_image, install_kernel
@@ -42,7 +43,7 @@ class BundledPrograms(unittest.TestCase):
     def run_program(self, name):
         with tempfile.TemporaryDirectory(prefix='p2000m-program-') as tmp:
             tmp = Path(tmp)
-            files = [*CORE_FILES, *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST'))]
+            files = [*CORE_FILES, *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'SYNC'))]
             # More than one 32 KiB directory extent; binary data includes Ctrl-Z.
             payload = bytes(range(256)) * 145
             fixtures = {'PAYLOAD.BIN': payload, 'HEXTEST.BIN': bytes(range(128)),
@@ -57,6 +58,8 @@ class BundledPrograms(unittest.TestCase):
             existing = tmp / "RESULT.BIN"
             existing.write_bytes(b"PRESERVE ME" + bytes(117))
             create_image(card, files, [existing] if name == "COPYEXISTS" else [])
+            if name.startswith('ZORK'):
+                shutil.copyfile(BUILD / 'p2000m-sd-template.img', card)
             install_kernel(card, (BUILD / 'kernel.bin').read_bytes())
             before = fat_digest(card)
             run = subprocess.run([str(BUILD / 'cpm-test'), str(EMULATOR), str(BUILD), str(card), name],
@@ -76,7 +79,7 @@ class BundledPrograms(unittest.TestCase):
                 self.assertEqual(text.rstrip(b'\x1a'), b'EDITED ON SD\r\n')
 
 
-for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT'):
+for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3'):
     setattr(BundledPrograms, 'test_' + program.lower(), lambda self, name=program: self.run_program(name))
 
 if __name__ == '__main__':

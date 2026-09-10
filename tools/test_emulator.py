@@ -72,6 +72,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--emulator', type=Path,
                         default=ROOT.parent / 'p2000m-emulator')
+    parser.add_argument('--cache-baseline', type=Path,
+                        help='Optional saved pre-cache kernel for a measured sector-I/O comparison')
     args = parser.parse_args()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
@@ -83,7 +85,7 @@ def main():
         if actual != expected + b'\x1a' * (-len(expected) % 128):
             raise AssertionError(f'Bundled utility mismatch: {source.name}')
     print('PASS: all seven standard utilities are present byte-exact in the built SD image', flush=True)
-    for name in ('boot', 'cpm'):
+    for name in ('cache', 'boot', 'cpm'):
         compile_harness(args.emulator, name)
         with tempfile.TemporaryDirectory(prefix='p2000m-cpm-') as tmp:
             card = Path(tmp) / 'writable.img'
@@ -105,7 +107,10 @@ def main():
             create_image(card, files)
             install_kernel(card, (build / 'kernel.bin').read_bytes())
             original_fat = fat_digest(card)
-            subprocess.run([str(build / (name + '-test')), str(args.emulator), str(build), str(card)], check=True)
+            command = [str(build / (name + '-test')), str(args.emulator), str(build), str(card)]
+            if name == 'cache' and args.cache_baseline:
+                command.append(str(args.cache_baseline.resolve()))
+            subprocess.run(command, check=True)
             if fat_digest(card) != original_fat:
                 raise AssertionError('CP/M operations modified the FAT32 partition')
             if name == 'cpm':

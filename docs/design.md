@@ -14,10 +14,49 @@ extension. Disk functions always address the SD cartridge or its SRAM.
 ## Boot and CPU memory
 
 The cartridge header uses the P2000 monitor's length and additive checksum.
-An 8 KiB ROM is mapped at stock addresses 1000–2FFF. Startup duplicates a small
+Its flag byte is 5Ch, clearing the floppy-DOS request bit previously set in
+5Eh. Monitor ROM 0313h tests that bit before calling its floppy loader at
+0E90h. We retain normal monitor validation and print immediately after entry;
+we do not use the 58h shortcut that bypasses normal monitor initialization.
+CTC channels 0–3 are disabled with control 03h at cartridge entry so programs
+such as DDT can enable interrupts without reviving monitor keyboard interrupts.
+A 16 KiB ROM is mapped at stock addresses 1000–4FFF. Unused space is padded
+with 00h; the header length is 3FFBh and the checksum covers offsets 5–3FFFh.
+The loader remains at file offset 1000h (stock 2000h, mapped E000h).
+Startup duplicates a small
 switch routine at stock RAM 9000 and F000. The OUT (20h),80h at 9002 enables
 co-board decoding. The next instruction at mapped 9004 comes from stock F004
 and jumps to E000, the cartridge slice still visible after switching.
+
+The stock ROM prints to video at 5000h before the switch. The resident loader
+continues at F000h without clearing those lines, showing SD initialization,
+header validation, completed kernel sectors, verification and kernel entry.
+Its status cursor uses scratch 9E10h–9E11h. ROM errors replace the activity row
+(18, zero-based), with command/response details on row 19. The dashboard has
+metadata on rows 1–2, TPA capacity on row 3, card identity on rows 9–10,
+the drive grid on rows 13–16 and the prompt on row 20. E00C prints a string
+at a fixed position; E00F replaces the activity row. The kernel checks the UI
+ABI signature at E012 before calling these new services. Inverse attributes
+scroll with text and are reset for application output. The E000/E003/E006/E009 jump
+vectors and kernel placement remain fixed.
+
+Initialization retries the complete CMD0/CMD8/ACMD41/CMD58 sequence up to eight
+times, with approximately 500 ms at 2.5 MHz between attempts. Command readiness
+polling is bounded at 65535 bytes (skipped for CMD0 recovery); response polling
+is bounded at 256 bytes. The 1000 ACMD41 attempts have at least 1 ms spacing.
+The attempt counter is at 9E12h, the boot-display flag at 9E13h, the three-pass
+content-validation budget at 9E14h, and last-command/response bytes at
+9E15h–9E16h; CID bytes occupy 9E20h–9E2Fh during boot. CMD10 reads a 16-byte
+CID data block and consumes its trailing CRC bytes; byte zero is the MID,
+as defined by the [SD Association physical-layer specification](https://www.sdcard.org/cms/wp-content/themes/sdcard-org/dl.php?f=Part1_Physical_Layer_Simplified_Specification_Ver6.00.pdf).
+MID, OEM, product and serial are shown for debugging; the full CID remains in scratch; CRC is consumed, not validated, and
+an unavailable CID is nonfatal. Retries do not reset the co-board or CPU and
+do not reformat the card. The E003h read entry retries three times, reinitializing
+between failed reads while retaining the requested LBA and destination. This
+covers header/kernel/MBR and runtime reads. Boot header, signature or checksum
+failures restart the load for at most three passes. Recovery output is enabled
+until BIOS disk initialization completes, then disabled for applications.
+The write entry remains synchronous and is never automatically replayed.
 
 The resident loader initializes SDHC SPI mode using CMD0, CMD8, CMD55/ACMD41
 and CMD58. It reads the system header at LBA 15 and loads 32 sectors from LBA 16
@@ -44,34 +83,36 @@ Applications enter at 0100. Location 0000 jumps to BIOS warm boot; location
 0005 jumps through 9800 to BDOS. BDOS uses a private stack and returns results
 in HL and A/B. The command processor stays resident above the reported TPA
 limit, so warm boot need not reload it or overwrite the RAM drive. Warm boot
-restores the command processor's drive from page zero. Disk writes are
-write-through, so successful writes require no deferred cache flush.
+restores the command processor's drive from page zero. SD writes are buffered;
+warm boot flushes data and metadata before restarting the prompt. Failed
+flushes retain dirty buffers and wait for an explicit R retry.
 
 ## SD image
 
-The image is 81 MiB. Physical sectors are 512 bytes. All partition sizes and
+The image is 153 MiB. Physical sectors are 512 bytes. All partition sizes and
 starts are explicit MBR LBA fields; CHS fields are placeholders.
 
 | Region | Start LBA | Sectors | Type / contents |
 | --- | ---: | ---: | --- |
-| MBR | 0 | 1 | Three primary partition entries |
+| MBR | 0 | 1 | Two primary partition entries |
 | System header | 15 | 1 | `P2MSYS01`, little-endian size and checksum |
 | Kernel | 16 | 32 | 16 KiB kernel; `P2MCPM01` signature at offset 3 |
 | FAT32 | 2048 | 131072 | Type 0Ch, exactly 64 MiB |
-| A: | 133120 | 16384 | Type 52h, exactly 8 MiB |
-| B: | 149504 | 16384 | Type 52h, exactly 8 MiB |
+| CP/M container A:–K: | 133120 | 180224 | Type 52h, eleven fixed 8 MiB slices |
 
 Other sectors before the FAT32 partition are reserved and zero-filled. FAT32
 has 512-byte clusters, 32 reserved sectors, two FATs, a root directory containing
 its volume label, FSInfo, and backup boot/FSInfo sectors. Construction follows
 the [Microsoft FAT specification](https://www.scs.stanford.edu/~zyedidia/docs/_other/fat.pdf).
 The ROM boots the alignment-gap kernel independently of FAT32. The BIOS
-validates both CP/M partition types, starts and lengths before allowing access;
+validates the FAT32 and CP/M container types, starts and lengths, and requires
+unused MBR entries to be zero before allowing access. Slice `d` starts at
+`133120 + d*16384` for `d=0..10`; L: is SRAM. The old layout is rejected;
 repartitioning requires updating the BIOS and image builder together.
 
 ## CP/M geometry
 
-| DPB field | A: and B: | C: |
+| DPB field | A:–K: | L: |
 | --- | ---: | ---: |
 | SPT | 128 | 32 |
 | BSH / BLM | 5 / 31 | 3 / 7 |
@@ -83,16 +124,57 @@ repartitioning requires updating the BIOS and image builder together.
 
 Each SD volume has 4 KiB allocation blocks and 16-bit block numbers: eight
 allocation pointers cover 32 KiB per physical directory entry. Four directory
-blocks consume 16 KiB, leaving 8,372,224 data bytes per volume. C: uses 1 KiB
+blocks consume 16 KiB, leaving 8,372,224 data bytes per volume. L: uses 1 KiB
 blocks, 8-bit allocation pointers, and a 2 KiB directory, leaving 126 KiB.
 All drives support CP/M user areas 0–15 and the standard extent/record format.
 Files have record-granular lengths; exact trailing byte counts are not stored.
 
-The SD BIOS deblocks 128-byte records with a 512-byte read/modify/write buffer.
-It preserves adjacent records and propagates read-only/I/O failures. The SRAM
+The SD BIOS deblocks 128-byte records through two 512-byte sector caches.
+It preserves adjacent records and reports read-only/I/O errors at eviction or
+commit (an ordinary buffered WRITE may succeed before the medium rejects it).
+The SRAM
 BIOS explicitly sets low address port 48h, high address 49h and bank 4Bh for
 data transfers through 4Dh. There is no auto-increment hardware assumption.
 Both SRAM banks are formatted only on cold boot.
+
+### Sector cache and durability
+
+`src/cache.asm` keeps one data sector at D800h and one directory sector at
+DE00h. The directory is exactly SD track zero (16 KiB) on all eleven SD
+volumes. Each descriptor has valid/dirty flags, the complete 32-bit physical
+LBA and a buffer pointer. DC90h/DC98h hold the descriptors; DCA0h–DCA5h hold
+request/fault/hint state. DCA6h/DCA8h/DCAAh/DCACh are 16-bit counters for ROM
+read calls, successful sector writes, cache hits and write attempts (wrapping).
+The second buffer uses previously unused kernel RAM; TPA size is unchanged.
+
+On a hit, only 128 bytes move between DMA and the sector buffer. On a miss,
+dirty eviction must succeed before replacement. A data eviction writes only
+data; a dirty directory eviction writes data first, then directory metadata.
+A clean directory miss does not flush data. A failed fill never publishes a
+valid tag, including in the filesystem's upper 128-byte directory buffer.
+
+CLOSE, BDOS 13/37 disk resets, drive changes, and warm boot/prompt entry flush
+both buffers. CREATE/DELETE/RENAME/attribute operations also commit before
+returning, including partial changes on failure. BIOS WRITE hint 1 requests
+an immediate ordered barrier; hints 0/2 allow buffering. Vector 17 at C033h
+is a project extension for explicit flush (A=0 success, 1 error; IX/IY preserved).
+The original 17 standard BIOS vector addresses are unchanged.
+
+After a rejected flush, pending tags/bytes remain dirty and ordinary cached
+I/O is blocked. An explicit flush retry reinitializes the original card and
+retries the pending commits. A data failure prevents directory writeback; a
+directory failure leaves already-committed data intact and retains metadata.
+No rollback, sector atomicity or power-loss journal is claimed. Fixed mounted
+media is assumed: never substitute another card while dirty state exists.
+Clients bypassing the BIOS via raw ROM I/O must flush/invalidate appropriately;
+raw writes behind the cache and live card changes are not coherent.
+
+The cache test counts actual calls to E003h/E006h, checks ordering and neighbours,
+injects read and write failures, retries CLOSE and warm boot, and compares an
+optional pre-cache kernel (`tools/test_emulator.py --cache-baseline PATH`).
+The measured 32-record sequential write/read case uses 16 reads + 8 writes,
+versus 64 + 32 without caching. Alternating four data and four directory
+record writes needs two reads and two ordered writes with the separate caches.
 
 The CP/M BIOS jump table starts at C000 and provides all 17 CP/M 2.2 entries.
 Resident ROM entry E003 reads one physical SD sector; E006 writes one; E009
@@ -110,10 +192,15 @@ Functions 38–39 return zero. Reader input returns EOF; unconnected list/punch
 output is discarded. The API is based on the
 [Digital Research system-interface documentation](https://www.cpm.z80.de/manuals/archive/cpm22htm/ch5.htm).
 
-Metadata and data writes are synchronous. Close confirms the file exists;
-normal writes have already persisted extent lengths and allocation pointers.
-Allocation maps are reconstructed from the directory when allocating or
-querying free space. Newly allocated blocks are zeroed, including function 40
+Normal writes stage data, extent lengths and allocation pointers in the cache.
+Close commits pending data before metadata and confirms the file exists;
+it returns an error if the commit fails.
+All SD DPHs share a 256-byte allocation scratch bitmap, rebuilt from the
+selected directory before every allocation or BDOS 27 query. L: has a separate
+16-byte bitmap. This avoids eleven resident bitmaps and leaves TPA unchanged.
+Login and protection masks are 16-bit words at 9F36h and 9F34h. BDOS 24/29
+return both bytes; BDOS 37 selectively resets both bytes.
+Newly allocated blocks are zeroed, including function 40
 writes. No journal or power-loss atomicity is claimed.
 
 The console directly scans the keyboard matrix and writes video RAM. It
@@ -155,5 +242,6 @@ byte-for-byte, run the utilities, and compare DUMP's first and last output rows
 against a known 128-byte input file. Source provenance and hashes are recorded
 in [the collection README](../assets/cpm_core/README.md).
 Monitor ROM and emulator CPU/device code remain in the referenced checkout.
-Physical cartridge timing and real hardware have not been tested; emulator
-success is not a substitute for a hardware trial.
+The preceding 16 KiB cartridge build was reported to boot on real hardware.
+The additional boot/test diagnostics are emulator-tested and await a hardware
+trial; physical SD timings and full hardware storage tests remain unverified.

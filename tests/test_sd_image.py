@@ -14,13 +14,14 @@ class ImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'card.img'
             sd.create_image(path)
-            self.assertEqual(path.stat().st_size, 81 * 1024 * 1024)
+            self.assertEqual(path.stat().st_size, 153 * 1024 * 1024)
             with path.open('rb') as card:
                 mbr = card.read(512)
                 self.assertEqual(mbr[510:], b'\x55\xaa')
-                parts = [struct.unpack_from('<B3sB3sII', mbr, 446 + i * 16) for i in range(3)]
+                parts = [struct.unpack_from('<B3sB3sII', mbr, 446 + i * 16) for i in range(2)]
                 self.assertEqual([(p[2], p[4], p[5]) for p in parts],
-                                 [(12, 2048, 131072), (82, 133120, 16384), (82, 149504, 16384)])
+                                 [(12, 2048, 131072), (82, 133120, 180224)])
+                self.assertEqual(mbr[478:510], bytes(32))
                 def sector(lba):
                     card.seek(lba * 512)
                     return card.read(512)

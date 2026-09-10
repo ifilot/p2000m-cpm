@@ -13,7 +13,7 @@
 ; See docs/source-guide.md for units, call flow and tests.
 ;
 ; CP/M directory/extent engine. 4 KiB/16-bit allocation on SD, 1 KiB/8-bit on SRAM.
-; Directory sectors are cached within an operation; data writes are write-through.
+; A per-operation directory record buffer sits above the BIOS sector caches.
 
 ; ============================================================================
 ; DRIVE CONTEXT: choose geometry and map logical drive bits
@@ -25,25 +25,25 @@
 ; Routine: drive_mask
 ; Convert a drive number to its login/protection mask.
 ;
-; Inputs:   A = drive index 0..2.
-; Outputs:  A = 1 << drive; B=0.
-; Clobbers: AF, B; C, DE, HL preserved.
+; Inputs:   A = drive index 0..11.
+; Outputs:  HL = 1 << drive; B=0. Supports all sixteen CP/M drive bits.
+; Clobbers: AF, B, HL; C, DE preserved.
 ; ----------------------------------------------------------------------------
 drive_mask:
     ld b,a
-    ld a,1
+    ld hl,1
     inc b
 mask_loop:
     dec b
     ret z
-    add a,a
+    add hl,hl
     jr mask_loop
 
 ; ----------------------------------------------------------------------------
 ; Routine: fs_current
 ; Set filesystem context from the current BDOS drive.
 ;
-; Inputs:   [current_drive] = 0..2.
+; Inputs:   [current_drive] = 0..11.
 ; Outputs:  A=0/Z=1 on success; A=1/Z=0 on invalid drive.
 ; Clobbers: AF, BC, DE, HL; geometry, selected drive, login mask, directory cache tag.
 ;
@@ -73,7 +73,7 @@ fs_setup:
 ; Routine: fs_use_drive
 ; Install geometry and allocation-map pointers for a given drive.
 ;
-; Inputs:   A = zero-based drive 0..2.
+; Inputs:   A = zero-based drive 0..11.
 ; Outputs:  A=0/Z=1 success, A=1/Z=0 failure.
 ; Clobbers: AF, BC, DE, HL; context globals.
 ;
@@ -81,26 +81,31 @@ fs_setup:
 ; 128 blocks, shift=3, EXM=0. Cache tag FFFFh forces the first directory read.
 ; ----------------------------------------------------------------------------
 fs_use_drive:
-    cp 3
+    cp drive_count
     jp nc,disk_error
     ld (fs_drive),a
     ld c,a
     call disk_select
+    ld a,h
+    or l
+    jp z,disk_error
     ld a,(fs_drive)
     call drive_mask
-    ld b,a
-    ld a,(logged)
-    or b
-    ld (logged),a
+    ld de,(logged)
+    ld a,l
+    or e
+    ld l,a
+    ld a,h
+    or d
+    ld h,a
+    ld (logged),hl
     ld hl,0xffff
     ld (cache_record),hl
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr z,fs_ram_geometry
     ld hl,allocation_a
-    or a
-    jr z,fs_sd_geometry
-    ld hl,allocation_b
+    ; Shared scratch bitmap: rebuilt before every allocation and BDOS 27.
 fs_sd_geometry:
     ld (alloc_ptr),hl
     ld hl,512
@@ -137,11 +142,19 @@ fs_ram_geometry:
 ; File attributes and physical-card errors are checked separately.
 ; ----------------------------------------------------------------------------
 fs_writable:
+    push de
+    push hl
     ld a,(fs_drive)
     call drive_mask
+    ld de,(read_only)
+    ld a,l
+    and e
     ld b,a
-    ld a,(read_only)
-    and b
+    ld a,h
+    and d
+    or b
+    pop hl
+    pop de
     ret z
     jp disk_error
 
@@ -155,7 +168,7 @@ fs_writable:
 
 ; ----------------------------------------------------------------------------
 ; Routine: fs_io
-; Perform one synchronous BIOS read or write of a logical record.
+; Perform one BIOS read or buffered write of a logical record.
 ;
 ; Inputs:   HL = record number; BC -> 128-byte DMA; A=0 read, A=1 write; fs_drive set.
 ; Outputs:  A=0/Z=1 success or A=1/Z=0 failure.
@@ -169,7 +182,7 @@ fs_io:
     push bc
     push hl
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     ld a,l
     jr z,fs_io_ram
     and 127
@@ -197,6 +210,7 @@ fs_io_shift:
     ld a,(io_mode)
     or a
     jp z,disk_read
+    ld c,0                 ; filesystem commits explicitly at its boundaries
     jp disk_write
 
 ; ============================================================================
@@ -233,12 +247,14 @@ fs_dir_get:
     sbc hl,de
     pop hl
     jr z,fs_dir_cached
-    ld (cache_record),hl
+    push hl
     ld bc,directory_buffer
     xor a
     call fs_io
+    pop hl
     or a
     ret nz
+    ld (cache_record),hl    ; publish the directory-record tag only after success
 fs_dir_cached:
     ld a,(scan_index)
     and 3
@@ -646,16 +662,19 @@ fs_open:
 
 ; ----------------------------------------------------------------------------
 ; Routine: fs_close
-; BDOS 16: confirm the named file exists after synchronous writes.
+; BDOS 16: commit pending data/metadata, then confirm the named file exists.
 ;
 ; Inputs:   IX -> FCB with drive/name.
 ; Outputs:  HL=slot 0..3 if found, 00FFh otherwise.
 ; Clobbers: AF, BC, DE, HL; scan state.
 ;
-; No dirty FCB is merged here: fs_write already persists each allocation
-; and length update. This is this implementation's write-through CLOSE contract.
+; No dirty FCB is merged here: fs_write stages allocation/length in the BIOS
+; cache. CLOSE commits data before metadata and returns FFh on flush failure.
 ; ----------------------------------------------------------------------------
 fs_close:
+    call cache_flush
+    or a
+    jp nz,return_ff
     call fs_setup
     jp nz,return_ff
     call fs_any_extent
@@ -1117,7 +1136,7 @@ fs_rebuild:
     inc de
     ld bc,255
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr nz,fs_clear_map
     ld bc,15
 fs_clear_map:
@@ -1126,7 +1145,7 @@ fs_clear_map:
     ld hl,(alloc_ptr)
     ld (hl),0xf0
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr nz,fs_rebuild_start
     ld (hl),0xc0
 fs_rebuild_start:
@@ -1147,7 +1166,7 @@ fs_rebuild_entry:
     add hl,de
     ld b,8
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr nz,fs_rebuild_pointer
     ld b,16
 fs_rebuild_pointer:
@@ -1155,7 +1174,7 @@ fs_rebuild_pointer:
     inc hl
     ld d,0
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr z,fs_rebuild_mark
     ld d,(hl)
     inc hl
@@ -1383,7 +1402,7 @@ fs_block_shift:
     srl c
     djnz fs_block_shift
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr z,fs_pointer_offset
     sla c
 fs_pointer_offset:
@@ -1394,7 +1413,7 @@ fs_pointer_offset:
     ld e,(hl)
     ld d,0
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr z,fs_pointer_read
     inc hl
     ld d,(hl)
@@ -1416,7 +1435,7 @@ fs_pointer_read:
     ld de,(rw_block)
     ld (hl),e
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     jr z,fs_data_io
     inc hl
     ld (hl),d

@@ -49,11 +49,12 @@ bios:
     jp disk_write
     jp list_status
     jp disk_translate
+    jp cache_flush         ; extension: vector 17, C033h
 
 ; ============================================================================
 ; SYSTEM LIFECYCLE: cold initialization versus warm restart
 ; Only cold boot clears BDOS state and formats cartridge SRAM. Warm boot
-; reinstalls page-zero vectors and the default DMA without touching C: data.
+; reinstalls page-zero vectors and the default DMA without touching L: data.
 ; ============================================================================
 
 ; ----------------------------------------------------------------------------
@@ -65,10 +66,14 @@ bios:
 ; Clobbers: AF, BC, DE, HL, SP; system state and all 128 KiB of cartridge SRAM.
 ;
 ; LDIR clears 9F00h..9FFFh. Page-zero IOBYTE and saved command drive
-; start at zero. disk_initialize validates the SD layout before formatting C:.
+; start at zero. disk_initialize validates the SD layout before formatting L:.
 ; ----------------------------------------------------------------------------
 cold_boot:
     ld sp,0x9d00
+    call cache_flush
+    or a
+    jp nz,kernel_error
+    call cache_invalidate
     ld hl,0x9f00
     ld de,0x9f01
     ld bc,255
@@ -77,17 +82,43 @@ cold_boot:
     xor a
     ld (3),a
     ld (4),a
+    ld hl,kernel_build_text
+    ld de,0xf0a1
+    call 0xe00c
+    ld hl,kernel_tpa_text
+    ld de,0xf0f1
+    call 0xe00c
+    ld hl,boot_partitions
+    call kernel_activity
     call disk_initialize
     or a
     jp nz,kernel_error
-    ld hl,start_banner
-    call ccp_puts
+    xor a
+    ld (0x9e13),a           ; disable boot-only recovery display after disk setup
+    ld hl,boot_vectors
+    call kernel_activity
+    ld hl,drive_row_0
+    ld de,0xf411
+    call 0xe00c
+    ld hl,drive_row_1
+    ld de,0xf461
+    call 0xe00c
+    ld hl,drive_row_2
+    ld de,0xf4b1
+    call 0xe00c
+    ld hl,drive_row_3
+    ld de,0xf501
+    call 0xe00c
+    ld hl,0xf641
+    ld (cursor),hl
+    ld a,1
+    ld (column),a
 
 ; ----------------------------------------------------------------------------
 ; Routine: warm_boot
 ; Restart the resident CCP without reformatting the RAM drive.
 ;
-; Inputs:   [0004h] = saved CCP drive (0..2); invalid values fall back to A:.
+; Inputs:   [0004h] = saved CCP drive (0..11); invalid values fall back to A:.
 ; Outputs:  No return: enters ccp_loop with DMA=0080h and standard page-zero jumps.
 ; Clobbers: AF, BC, DE, HL, SP; current_drive, user_dma, DMA, page-zero vectors.
 ;
@@ -96,9 +127,22 @@ cold_boot:
 ; ----------------------------------------------------------------------------
 warm_boot:
     ld sp,0x9d00
+warm_flush:
+    call cache_flush
+    or a
+    jr z,warm_flushed
+    ld hl,flush_error_text
+    call ccp_puts
+warm_flush_key:
+    call console_input
+    and 0xdf
+    cp 'R'
+    jr nz,warm_flush_key
+    jr warm_flush
+warm_flushed:
     ld a,(4)
     and 15
-    cp 3
+    cp drive_count
     jr c,warm_drive
     xor a
 warm_drive:
@@ -119,10 +163,12 @@ warm_drive:
     ld bc,0x80
     call disk_dma
     jp ccp_loop
+flush_error_text: db 13,10,'SD flush failed: dirty data retained. Restore original card.',13,10
+    db 'Press R to retry; do not reset or remove power.',13,10,0
 
 ; ----------------------------------------------------------------------------
 ; Routine: disk_initialize
-; Validate the two CP/M partitions and cold-format external SRAM.
+; Validate the FAT32 and eleven-volume CP/M container and cold-format external SRAM.
 ;
 ; Inputs:   SDHC already initialized by ROM; no register arguments.
 ; Outputs:  A=0/Z=1 success, A=1/Z=0 on MBR or SD failure.
@@ -155,20 +201,33 @@ disk_initialize:
     ld a,(sector_buffer+466)
     cp 0x52
     jp nz,disk_error
-    ld a,(sector_buffer+482)
-    cp 0x52
+    ld a,(sector_buffer+450)
+    cp 0x0c
+    jp nz,disk_error
+    ld hl,sector_buffer+454
+    ld de,partition_fat
+    ld b,8
+    call compare_bytes
     jp nz,disk_error
     ld hl,sector_buffer+470
-    ld de,partition_a
+    ld de,partition_container
     ld b,8
     call compare_bytes
     jp nz,disk_error
-    ld hl,sector_buffer+486
-    ld de,partition_b
-    ld b,8
-    call compare_bytes
+    ; No overlapping extra MBR partitions are permitted in this fixed layout.
+    ld hl,sector_buffer+478
+    ld b,32
+disk_extra_entries:
+    ld a,(hl)
+    or a
     jp nz,disk_error
+    inc hl
+    djnz disk_extra_entries
     ; Cold-boot format both SRAM banks. Warm boot deliberately skips this.
+    ld hl,boot_partition_ok
+    call kernel_activity
+    ld hl,boot_ram_first
+    call kernel_activity
     ld d,0
 ram_format_bank:
     ld a,d
@@ -188,9 +247,29 @@ ram_format_byte:
     inc d
     ld a,d
     cp 2
-    jr nz,ram_format_bank
+    jr z,ram_format_done
+    ld hl,boot_ram_second
+    call kernel_activity
+    jr ram_format_bank
+ram_format_done:
+    ld hl,boot_ram_ok
+    call kernel_activity
     xor a
     ret
+
+kernel_activity:
+    push bc
+    push de
+    call 0xe00f
+    pop de
+    pop bc
+    ret
+boot_partitions: db '  CHECKING SD LAYOUT  /  eleven 8 MiB volumes A-K',0
+boot_partition_ok: db '  SD LAYOUT VERIFIED  /  A-K ready',0
+boot_ram_first: db '  INITIALIZING L: SCRATCH (RAM)  /  0/128 KiB',0
+boot_ram_second: db '  INITIALIZING L: SCRATCH (RAM)  /  64/128 KiB',0
+boot_ram_ok: db '  INITIALIZING L: SCRATCH (RAM)  /  128/128 KiB OK',0
+boot_vectors: db '  BOOT COMPLETE  /  CP/M entry points installed',0
 
 ; ----------------------------------------------------------------------------
 ; Routine: compare_bytes
@@ -210,8 +289,8 @@ compare_bytes:
     inc hl
     djnz compare_bytes
     ret
-partition_a: db 0,8,2,0,0,64,0,0
-partition_b: db 0,72,2,0,0,64,0,0
+partition_fat: db 0,8,0,0,0,0,2,0
+partition_container: db 0,8,2,0,0,192,2,0
 
 ; ============================================================================
 ; DISK SELECTION: latch the parameters for the next record transfer
@@ -270,20 +349,31 @@ disk_dma:
 
 ; ----------------------------------------------------------------------------
 ; Routine: disk_select
-; Select A:, B: or C: and return its disk parameter header.
+; Select A: through L: and return its disk parameter header.
 ;
-; Inputs:   C=0/1/2 for A:/B:/C:; CP/M E login flag is not needed by fixed media.
+; Inputs:   C=0..11 for A:..L:; CP/M E login flag is not needed by fixed media.
 ; Outputs:  HL -> DPH on success; HL=0 for an unsupported drive.
 ; Clobbers: AF, DE, HL; BC, IX, IY preserved.
 ;
-; Each DPH is 16 bytes. A:/B: share geometry but have separate allocation
+; Each DPH is 16 bytes. A:..K: share geometry and a rebuilt scratch allocation
 ; maps. An invalid selection leaves the previous drive selected.
 ; ----------------------------------------------------------------------------
 disk_select:
     ld hl,0
     ld a,c
-    cp 3
+    cp drive_count
     ret nc
+    ld a,(selected)
+    cp c
+    jr z,disk_select_ready
+    push bc
+    call cache_flush
+    pop bc
+    ld hl,0
+    or a
+    ret nz
+disk_select_ready:
+    ld a,c
     ld (selected),a
     add a,a
     add a,a
@@ -343,16 +433,18 @@ disk_read:
 
 ; ----------------------------------------------------------------------------
 ; Routine: disk_write
-; Write the DMA record synchronously to the selected drive.
+; Write the DMA record to the selected drive (buffered for SD).
 ;
-; Inputs:   Latched disk/DMA state; C is the CP/M write hint (0/1/2), ignored here.
-; Outputs:  A=0/Z=1 success, A=1/Z=0 failure.
+; Inputs:   Latched disk/DMA state; C=1 requests immediate ordered commit.
+; Outputs:  A=0/Z=1 accepted (committed for C=1), A=1/Z=0 failure.
 ; Clobbers: AF, BC, DE, HL; selected media, sector_buffer and ROM scratch.
 ;
-; All writes are write-through, including directory writes, so no dirty
-; sector cache needs flushing at CLOSE or warm boot.
+; Hints 0/2 are buffered; CLOSE/reset/warm boot and vector 17 flush them.
+; SRAM remains immediate. Hint 2 conservatively reads the sector on a miss.
 ; ----------------------------------------------------------------------------
 disk_write:
+    ld a,c
+    ld (cache_hint),a
     ld a,1
 
 ; ----------------------------------------------------------------------------
@@ -364,12 +456,12 @@ disk_write:
 ; Clobbers: AF, BC, DE, HL.
 ;
 ; SD LBA = partition base + track*32 + sector/4. The low two sector
-; bits pick a 128-byte slice. Writes first read all 512 bytes to retain neighbours.
+; bits pick a 128-byte slice. Cache misses read 512 bytes to retain neighbours.
 ; ----------------------------------------------------------------------------
 disk_transfer:
     ld (writing),a
     ld a,(selected)
-    cp 2
+    cp ram_drive
     jp z,ram_transfer
     jp nc,disk_error
     ld hl,(track)
@@ -393,46 +485,26 @@ disk_transfer:
     srl e
     add hl,de
     ld de,0x0800
+    add hl,de
     ld a,(selected)
-    or a
-    jr z,sd_base
-    ld de,0x4800
-sd_base:
-    add hl,de
-    ld (0x9e00),hl
-    ld hl,0x0002
-    ld (0x9e02),hl
-    ld hl,sector_buffer
-    ld (0x9e04),hl
-    call 0xe003
-    or a
-    ret nz
-    ld a,(record)
+    srl a
+    srl a
+    add a,2
+    ld c,a
+    ld b,0
+    ld a,(selected)
     and 3
-    ld l,a
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld de,sector_buffer
+    rrca
+    rrca
+    ld d,a
+    ld e,0
     add hl,de
-    ld de,(dma)
-    ld bc,128
-    ld a,(writing)
-    or a
-    jr nz,sd_record_write
-    ldir
-    xor a
-    ret
-sd_record_write:
-    ex de,hl
-    ldir
-    ; Write through: directory writes and warm boot need no cache flush.
-    jp 0xe006
+    jr nc,sd_base
+    inc bc
+sd_base:
+    ld (cache_request),hl
+    ld (cache_request+2),bc
+    jp cache_transfer
 
 ; ----------------------------------------------------------------------------
 ; Routine: ram_transfer
@@ -523,7 +595,9 @@ ram_address:
     out (0x48),a
     ret
 
+include 'cache.asm'
 include 'console.asm'
+include 'kernel_screen.inc'
 
 ; ============================================================================
 ; DISK TABLES AND BUFFERS: DPH links to DPB and allocation bitmap
@@ -532,8 +606,17 @@ include 'console.asm'
 ; ============================================================================
 
 dph_a: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
-dph_b: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_b
-dph_c: dw 0,0,0,0,directory_buffer,dpb_ram,0,allocation_c
+dph_b: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_c: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_d: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_e: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_f: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_g: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_h: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_i: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_j: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_k: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
+dph_l: dw 0,0,0,0,directory_buffer,dpb_ram,0,allocation_c
 dpb_sd:
     dw 128                ; SPT: 128 records of 128 bytes per logical track
     db 5,31,1             ; BSH/BLM/EXM: 4 KiB blocks, two 16 KiB extents/entry

@@ -45,6 +45,9 @@ ccp_start:
 ; ----------------------------------------------------------------------------
 ccp_loop:
     ld sp,0x9d00
+    call cache_flush
+    or a
+    jp nz,warm_boot
     ld de,0x80
     ld c,26
     call bdos_entry
@@ -197,12 +200,14 @@ ccp_dir_all:
     inc hl
     djnz ccp_dir_all
 ccp_dir_search:
+    xor a
+    ld (dir_column),a
     ld de,command_fcb
     ld c,17
 ccp_dir_next:
     call bdos_entry
     cp 0xff
-    jp z,ccp_loop
+    jr z,ccp_dir_done
     add a,a
     add a,a
     add a,a
@@ -231,10 +236,31 @@ ccp_dir_ext:
     call console_output
     inc hl
     djnz ccp_dir_ext
+    ld a,(dir_column)
+    inc a
+    cp 4
+    jr z,ccp_dir_wrap
+    ld (dir_column),a
+    ld c,' '
+    call console_output
+    ld c,':'
+    call console_output
+    ld c,' '
+    call console_output
+    jr ccp_dir_continue
+ccp_dir_wrap:
+    xor a
+    ld (dir_column),a
     call ccp_newline
+ccp_dir_continue:
     ld c,18
     ld de,command_fcb
     jr ccp_dir_next
+ccp_dir_done:
+    ld a,(dir_column)
+    or a
+    call nz,ccp_newline
+    jp ccp_loop
 
 ; ----------------------------------------------------------------------------
 ; Routine: ccp_erase
@@ -695,7 +721,7 @@ parse_spaces:
     jr nz,parse_name
     ld a,(hl)
     sub 'A'-1
-    cp 4
+    cp drive_count+1
     jr nc,parse_bad
     or a
     jr z,parse_bad
@@ -761,7 +787,7 @@ parse_bad:
 ; command buffer reserves a count byte and room for the terminating NUL.
 ; ============================================================================
 
-start_banner: db 'P2000M SD CP/M 2.2 - A: B: SD, C: 128 KiB RAM',13,10,0
+start_banner: equ implementation_text
 error_message: db 'Error: command, file or disk operation failed',13,10,0
 com_extension: db 'COM'
 command_line: db 126,0
@@ -772,3 +798,4 @@ argument_text: dw 0
 load_address: dw 0
 
 save_records: dw 0
+dir_column: db 0

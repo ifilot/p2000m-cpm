@@ -14,6 +14,7 @@
 ;
 ; Original SD-loaded CP/M-compatible kernel, CP/M 2.2 API.
 org 0xa000
+include 'platform.inc'
 jp start
 db 'P2MCPM01'
 
@@ -34,7 +35,26 @@ db 'P2MCPM01'
 start:
     di
     ld sp,0x9d00
+    ; Refuse older cartridges before invoking the new dashboard ROM services.
+    ld hl,0xe012
+    ld de,ui_signature
+    ld b,8
+kernel_rom_check:
+    ld a,(de)
+    cp (hl)
+    jr nz,kernel_rom_mismatch
+    inc hl
+    inc de
+    djnz kernel_rom_check
     jp cold_boot
+kernel_rom_mismatch:
+    ld c,12
+    call console_output
+    ld hl,rom_mismatch_text
+    call ccp_puts
+    jp kernel_stop
+ui_signature: db 'P2MUI01',0
+rom_mismatch_text: db 'BOOT STOPPED: update port-1 ROM to match this SD kernel.',0
 
 ; ----------------------------------------------------------------------------
 ; Routine: kernel_ready
@@ -60,7 +80,7 @@ kernel_ready:
 ; ----------------------------------------------------------------------------
 kernel_error:
     ld hl,error_banner
-    call ccp_puts
+    call 0xe00f
 kernel_stop:
     halt
     jr kernel_stop

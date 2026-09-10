@@ -1,13 +1,13 @@
 {
-  "description": "Raw z80asm output before source-commenting pass; preserve exact instructions, data, layout and fall-through behavior.",
+  "description": "Version 0.1.0 raw assembly baseline, generated metadata with SOURCE_DATE_EPOCH=0. Twelve drives, dashboard/TPA, A-only CPMTEST, L-only RAMTEST. ROM I/O vectors and TPA boundary retained.",
   "artifacts": {
     "src/cartridge.asm": {
-      "bytes": 4751,
-      "sha256": "f22cf89525db8257e336bf8956953f03d3408f4cfe05825406ab805bca80a0eb"
+      "bytes": 6060,
+      "sha256": "5b43ee8bbd725ffe379d68ef1fd6abe7ca181890a7185bbd44bb541ddfb34935"
     },
     "src/kernel.asm": {
       "bytes": 16384,
-      "sha256": "ae4184ad7a11a8cf215090b21acd5eef3b7175cb0a5b2a73cb3ef937c187cfc6"
+      "sha256": "db9a0ae801412e90e31c06b7608e4eb1d61cffe186d1aadc0738e1e0136cc96f"
     },
     "programs/copy.asm": {
       "bytes": 510,
@@ -15,11 +15,19 @@
     },
     "programs/cpmtest.asm": {
       "bytes": 1920,
-      "sha256": "721c025b0ba2c5e8645f8906ec17c929c62eee06df9a22ce5a9b444e7bbf0806"
+      "sha256": "a8f5cc27d6d47013d159717bf4a2fa0b6ab671678c7841700560e9193695ca98"
     },
     "programs/hello.asm": {
       "bytes": 58,
       "sha256": "363975f533bdda25d9769a400585f74deeaefbb6ce457b3167fbe09b9a34bc06"
+    },
+    "programs/ramtest.asm": {
+      "bytes": 1920,
+      "sha256": "d3aa72bb16e805d0c7ac91a2e6909eed6764db53c2fe196b9310104aad607ab5"
+    },
+    "programs/sync.asm": {
+      "bytes": 135,
+      "sha256": "8ba35812ce3294ee14b5aed8460d10d26c96a1b1dc287f5f5d13da1386c7152f"
     },
     "tests/tpalimit.asm": {
       "bytes": 38656,

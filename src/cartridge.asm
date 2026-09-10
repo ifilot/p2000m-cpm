@@ -12,12 +12,13 @@
 ; Labels without a Routine header are local branches or data, not public calls.
 ; See docs/source-guide.md for units, call flow and tests.
 ;
-; Original P2000M boot cartridge. z80asm syntax, 8 KiB physical image.
+; Original P2000M boot cartridge. z80asm syntax, 16 KiB zero-padded image.
 ; ROM entry vectors after mapping: E000 boot, E003 read, E006 write, E009 init.
 ; Block I/O ABI: 32-bit little-endian LBA at 9E00, buffer address at 9E04.
 ; Returns A=0 on success, A=1 on failure. Clobbers AF/BC/DE/HL.
 org 0x1000
-db 0x5e,0,0,0,0
+; Bit 1 clear: do not ask the monitor to attempt floppy DOS before entry.
+db 0x5c,0,0,0,0
 db 'SD CPM     '
 jp entry
 
@@ -44,9 +45,37 @@ entry:
     xor a
     out (0x10),a
     out (0x94),a
-    ; The 8 KiB cartridge uses linear RAM mapping: stock 9000 -> 3000.
-    ; Duplicate the post-OUT continuation at its *old numeric* PC in RAM.
-    ; The OUT itself executes in stock RAM; the next fetch uses mapped RAM.
+    ; The monitor's keyboard/CTC interrupts are no longer used by our polled
+    ; console. Disable all four channels before applications can execute EI.
+    ld a,3
+    out (0x88),a
+    out (0x89),a
+    out (0x8a),a
+    out (0x8b),a
+    ; First title appears before bulk initialization; both screen maps alias.
+    ld hl,0x5800
+    ld de,0x5801
+    ld bc,79
+    ld (hl),0
+    ldir
+    ld hl,stock_banner
+    ld de,0x5000
+    call stock_print
+    ld hl,stock_screen
+    ld de,0x5000
+    ld bc,1920
+    ldir
+    ld hl,0x5800
+    ld de,0x5801
+    ld bc,2047
+    ld (hl),0
+    ldir
+    ld hl,0x5801
+    call stock_inverse
+    ld hl,0x5a81
+    call stock_inverse
+    ld hl,0x5bc1
+    call stock_inverse
     ld hl,switch_code
     ld de,0x9000
     ld bc,switch_end-switch_code
@@ -56,6 +85,22 @@ entry:
     ld bc,switch_end-switch_code
     ldir
     jp 0x9000
+stock_inverse:
+    ld b,78
+stock_inverse_loop:
+    ld (hl),8
+    inc hl
+    djnz stock_inverse_loop
+    ret
+stock_print:
+    ld a,(hl)
+    or a
+    ret z
+    ld (de),a
+    inc hl
+    inc de
+    jr stock_print
+include 'boot_screen.inc'
 
 ; ----------------------------------------------------------------------------
 ; Routine: switch_code
@@ -72,12 +117,15 @@ switch_code:
     out (0x20),a
     jp 0xe000
 switch_end:
-defs 0x2000-$,0xff
+defs 0x2000-$,0
 org 0xe000
     jp boot
     jp sd_read
     jp sd_write
     jp sd_init
+    jp boot_message        ; E00C: HL=NUL text, DE=video destination
+    jp boot_activity       ; E00F: HL=text, replace activity row (18)
+    db 'P2MUI01',0          ; E012: dashboard ABI guard for the SD kernel
 
 lba: equ 0x9e00
 buffer_ptr: equ 0x9e04
@@ -104,19 +152,54 @@ remaining: equ 0x9e0c
 boot:
     di
     ld sp,0x9d00
-    ld hl,0xf000
-    ld de,0xf001
-    ld bc,0x7ff
-    ld (hl),' '
-    ldir
-    ld hl,0xf800
-    ld de,0xf801
-    ld bc,0x7ff
-    ld (hl),0
-    ldir
+    ld a,1
+    ld (boot_active),a
+    ld a,3
+    ld (boot_load_budget),a
+    ld hl,msg_mapped
+    ld de,0xf1f1
+    call boot_message
+    ld hl,msg_ready_status
+    ld de,0xf221
+    call boot_message
+boot_load_start:
+    ld hl,msg_starting_status
+    ld de,0xf3b1
+    call boot_message
+    ld hl,msg_init_activity
+    call boot_activity
+    ld hl,msg_sd
+    ld de,0xf381
+    call boot_message
+    ld a,1
+    ld (boot_attempt),a
+boot_sd_retry:
+    ld a,(boot_attempt)
+    add a,'0'
+    ld (0xf381+msg_attempt-msg_sd),a
     call sd_init
     or a
-    jp nz,boot_error
+    jr z,boot_sd_ready
+    ld a,(boot_attempt)
+    cp 8
+    jp z,boot_error
+    inc a
+    ld (boot_attempt),a
+    call boot_recovery
+    call sd_retry_pause
+    jr boot_sd_retry
+boot_sd_ready:
+    ld hl,msg_ready_status
+    ld a,(boot_attempt)
+    cp 1
+    jr z,boot_sd_status
+    ld hl,msg_recovered_status
+boot_sd_status:
+    ld de,0xf3b1
+    call boot_message
+    call boot_cid
+    ld hl,msg_header
+    call boot_activity
     ld hl,15
     ld (lba),hl
     ld hl,0
@@ -132,7 +215,7 @@ boot:
 header_check:
     ld a,(de)
     cp (hl)
-    jp nz,boot_error
+    jp nz,header_error
     inc de
     inc hl
     djnz header_check
@@ -140,8 +223,16 @@ header_check:
     ld de,0x4000
     or a
     sbc hl,de
-    jp nz,boot_error
+    jp nz,header_error
     ld hl,16
+    push hl
+    call boot_ok
+    ld hl,msg_loading_status
+    ld de,0xf271
+    call boot_message
+    ld hl,msg_load
+    call boot_activity
+    pop hl
     ld (lba),hl
     ld hl,0
     ld (lba+2),hl
@@ -163,14 +254,20 @@ boot_read:
     ld a,(remaining)
     dec a
     ld (remaining),a
+    call boot_progress
+    ld a,(remaining)
+    or a
     jr nz,boot_read
+    call boot_ok
+    ld hl,msg_check
+    call boot_activity
     ld hl,signature
     ld de,0xa003
     ld b,8
 boot_check:
     ld a,(de)
     cp (hl)
-    jp nz,boot_error
+    jp nz,signature_error
     inc de
     inc hl
     djnz boot_check
@@ -192,7 +289,16 @@ kernel_checksum_next:
     ld hl,(0x960a)
     or a
     sbc hl,de
-    jp nz,boot_error
+    jp nz,checksum_error
+    call boot_ok
+    ld hl,msg_enter
+    call boot_activity
+    ld hl,msg_verified
+    ld de,0xf241
+    call boot_message
+    ld hl,msg_ready_status
+    ld de,0xf271
+    call boot_message
     jp 0xa000
 
 ; ----------------------------------------------------------------------------
@@ -207,21 +313,275 @@ kernel_checksum_next:
 ; ----------------------------------------------------------------------------
 boot_error:
     ld hl,error_text
-    ld de,0xf000
-boot_print:
-    ld a,(hl)
-    or a
-    jr z,boot_halt
-    ld (de),a
-    inc hl
-    inc de
-    jr boot_print
+    jr boot_error_show
+header_error:
+    ld hl,header_error_text
+    jr boot_content_error
+signature_error:
+    ld hl,signature_error_text
+    jr boot_content_error
+checksum_error:
+    ld hl,checksum_error_text
+boot_content_error:
+    ld a,(boot_load_budget)
+    dec a
+    ld (boot_load_budget),a
+    jr z,boot_error_show
+    call boot_recovery
+    call sd_retry_pause
+    jp boot_load_start
+boot_error_show:
+    call boot_activity
+    ld hl,msg_recovery
+    ld de,0xf5f0
+    call boot_message
+    ld a,(sd_last_command)
+    call boot_hex
+    ld hl,msg_response
+    call boot_message
+    ld a,(sd_last_response)
+    call boot_hex
 boot_halt:
     halt
     jr boot_halt
 system_signature: db 'P2MSYS01'
 signature: db 'P2MCPM01'
-error_text: db 'SD BOOT ERROR: check card and system image',0
+error_text: db 'SD BOOT ERROR: card I/O failed or timed out; see active stage above',0
+header_error_text: db 'SD BOOT ERROR: invalid system header signature or kernel size',0
+signature_error_text: db 'SD BOOT ERROR: kernel signature mismatch',0
+checksum_error_text: db 'SD BOOT ERROR: kernel checksum mismatch',0
+
+; Fixed-row output survives the map switch and identifies the failing stage.
+; boot_message: HL=NUL string, DE=video address; clobbers AF/DE/HL.
+boot_status: equ 0x9e10
+boot_attempt: equ 0x9e12
+boot_active: equ 0x9e13
+boot_load_budget: equ 0x9e14
+sd_last_command: equ 0x9e15
+sd_last_response: equ 0x9e16
+boot_message:
+    ld a,(hl)
+    or a
+    jr z,boot_message_end
+    ld (de),a
+    inc hl
+    inc de
+    jr boot_message
+boot_message_end:
+    ld (boot_status),de
+    ret
+boot_ok:
+    ret
+; Replace only the activity row. BIOS and ROM use this same fixed region.
+boot_activity:
+    push hl
+    ld hl,0xf5a0
+    ld de,0xf5a1
+    ld bc,79
+    ld (hl),' '
+    ldir
+    pop hl
+    ld de,0xf5a1
+    jp boot_message
+; Update completed kernel sectors in decimal, preserving the loader registers.
+boot_progress:
+    push af
+    push bc
+    push de
+    push hl
+    ld a,32
+    ld hl,remaining
+    sub (hl)
+    ld b,'0'
+boot_tens:
+    cp 10
+    jr c,boot_digits
+    sub 10
+    inc b
+    jr boot_tens
+boot_digits:
+    add a,'0'
+    ld hl,0xf5a1+msg_load_count-msg_load
+    ld (hl),b
+    inc hl
+    ld (hl),a
+    pop hl
+    pop de
+    pop bc
+    pop af
+    ret
+msg_mapped: db 'RAM enabled  /  ROM loader E000                 ',0
+msg_init_activity: db '  INITIALIZING SD  /  reset and SPI negotiation',0
+msg_sd: db 'SPI mode  /  attempt '
+msg_attempt: db '1/8',0
+msg_header: db '  CHECKING SYSTEM HEADER  /  SD sector 15',0
+msg_load: db '  LOADING KERNEL  /  SD 16-47 -> A000-DFFF   '
+msg_load_count: db '00/32 sectors',0
+msg_check: db '  CHECKING KERNEL  /  signature and checksum',0
+msg_enter: db '  STARTING KERNEL  /  entry A000',0
+msg_verified: db 'A000-DFFF  /  signature + checksum               ',0
+msg_ready_status: db '          OK',0
+msg_starting_status: db '    STARTING',0
+msg_loading_status: db '     LOADING',0
+msg_recovered_status: db '   RECOVERED',0
+
+; CMD10 returns the 16-byte CID; byte 0 is the manufacturer ID (MID).
+; Keep this on row 10; the BIOS begins its console log on row 11.
+; An unavailable CID is reported explicitly and does not prevent data boot.
+boot_cid:
+    ld hl,msg_cid_wait
+    call boot_activity
+    ld hl,c10
+    call sd_command
+    or a
+    jr nz,boot_cid_fail
+    ld bc,0xffff
+boot_cid_wait:
+    call spi_rx
+    cp 0xfe
+    jr z,boot_cid_read
+    cp 0xff
+    jr nz,boot_cid_fail
+    dec bc
+    ld a,b
+    or c
+    jr nz,boot_cid_wait
+boot_cid_fail:
+    call sd_close
+    ld hl,msg_cid_missing
+    ld de,0xf2e1
+    call boot_message
+    ld hl,msg_cid_failed_status
+    ld de,0xf311
+    jp boot_message
+boot_cid_read:
+    ld hl,0x9e20
+    ld b,16
+boot_cid_byte:
+    call spi_rx
+    ld (hl),a
+    inc hl
+    djnz boot_cid_byte
+    call spi_rx
+    call spi_rx
+    call sd_close
+    ld de,0xf2e5        ; row 9 column 21, after 'MID '
+    ld a,(0x9e20)
+    call boot_hex
+    ld de,0xf2f0        ; row 9 column 32, after 'OEM '
+    ld hl,0x9e21
+    ld b,2
+    call boot_cid_ascii
+    ld de,0xf339        ; row 10 column 25, after 'Product '
+    ld hl,0x9e23
+    ld b,5
+    call boot_cid_ascii
+    ld de,0xf34a        ; row 10 column 42, after 'Serial '
+    ld hl,0x9e29
+    ld b,4
+boot_cid_hex:
+    ld a,(hl)
+    call boot_hex
+    inc hl
+    djnz boot_cid_hex
+    ld de,0xf311        ; row 9, right status field
+    ld hl,msg_ready_status
+    jp boot_message
+boot_cid_ascii:
+    ld a,(hl)
+    cp 32
+    jr c,boot_cid_dot
+    cp 127
+    jr nc,boot_cid_dot
+    cp '#'
+    jr nz,boot_cid_store
+    ld a,0x5f
+    jr boot_cid_store
+boot_cid_dot:
+    ld a,'.'
+boot_cid_store:
+    ld (de),a
+    inc de
+    inc hl
+    djnz boot_cid_ascii
+    ret
+; A -> two hex characters at DE, preserving BC/HL.
+boot_hex:
+    push af
+    rrca
+    rrca
+    rrca
+    rrca
+    call boot_nibble
+    pop af
+boot_nibble:
+    and 15
+    add a,'0'
+    cp '9'+1
+    jr c,boot_hex_store
+    add a,7
+boot_hex_store:
+    ld (de),a
+    inc de
+    ret
+c10: db 0x4a,0,0,0,0,1
+msg_cid_wait: db '  READING CARD IDENTITY  /  CMD10',0
+msg_cid_missing: db 'CID unavailable (CMD10 failed)                 ',0
+msg_cid_failed_status: db ' UNAVAILABLE',0
+
+; Report recovery only during boot; retain the main stage's append cursor.
+; Preserve caller registers/flags, including pending error strings and budgets.
+boot_recovery:
+    push af
+    push bc
+    push de
+    push hl
+    ld a,(boot_active)
+    or a
+    jr z,boot_recovery_done
+    ld hl,(boot_status)
+    push hl
+    ld hl,msg_retry_status
+    ld de,0xf3b1
+    call boot_message
+    pop hl
+    ld (boot_status),hl
+boot_recovery_done:
+    pop hl
+    pop de
+    pop bc
+    pop af
+    ret
+msg_retry_status: db '    RETRYING',0
+msg_recovery: db '  Last command: 0x',0
+msg_response: db ' response 0x',0
+
+; Roughly 500 ms at 2.5 MHz. No clocks while deselected; preserve registers.
+sd_retry_pause:
+    push af
+    push bc
+    ld bc,48000
+sd_retry_pause_loop:
+    dec bc
+    ld a,b
+    or c
+    jr nz,sd_retry_pause_loop
+    pop bc
+    pop af
+    ret
+; At least 1 ms between idle ACMD41 polls, rather than a tight command loop.
+sd_init_pause:
+    push af
+    push bc
+    ld bc,100
+sd_init_pause_loop:
+    dec bc
+    ld a,b
+    or c
+    jr nz,sd_init_pause_loop
+    pop bc
+    pop af
+    ret
 
 ; Byte-wide bridge: allow at least 32 T states between CLKSTART and read.
 
@@ -333,15 +693,40 @@ sd_ok:
 sd_command:
     call sd_close
     out (0x43),a
+    ld a,(hl)
+    and 0x3f
+    ld (sd_last_command),a
+    or a
+    jr z,cmd_ready
+    ; Wait for a previously busy card before issuing a new command. CMD0
+    ; bypasses this so that reset remains possible when readiness is lost.
+    push bc
+    ld bc,0xffff
+cmd_ready_wait:
+    call spi_rx
+    cp 0xff
+    jr z,cmd_ready_pop
+    dec bc
+    ld a,b
+    or c
+    jr nz,cmd_ready_wait
+    pop bc
+    ld a,0xff
+    ld (sd_last_response),a
+    ret
+cmd_ready_pop:
+    pop bc
+cmd_ready:
     ld b,6
 cmd_send:
     ld a,(hl)
     call spi_tx
     inc hl
     djnz cmd_send
-    ld b,16
+    ld b,0                 ; up to 256 response bytes
 cmd_reply:
     call spi_rx
+    ld (sd_last_response),a
     bit 7,a
     ret z
     djnz cmd_reply
@@ -399,8 +784,10 @@ init_wait:
     dec de
     ld a,d
     or e
-    jr nz,init_wait
-    jp sd_fail
+    jp z,sd_fail
+    call sd_close
+    call sd_init_pause
+    jr init_wait
 init_ocr:
     ld hl,c58
     call sd_command
@@ -465,6 +852,23 @@ block_arg:
 ; the start token; two trailing CRC bytes are consumed but not validated.
 ; ----------------------------------------------------------------------------
 sd_read:
+    ld a,3
+sd_read_retry:
+    push af
+    call sd_read_once
+    pop bc                 ; B = attempts remaining
+    or a
+    ret z
+    dec b
+    jp z,sd_fail
+    push bc
+    call boot_recovery
+    call sd_retry_pause
+    call sd_init
+    pop bc
+    ld a,b
+    jr sd_read_retry
+sd_read_once:
     ld a,0x51
     call block_command
     or a
@@ -472,6 +876,7 @@ sd_read:
     ld bc,0xffff
 read_wait:
     call spi_rx
+    ld (sd_last_response),a
     cp 0xfe
     jr z,read_payload
     cp 0xff

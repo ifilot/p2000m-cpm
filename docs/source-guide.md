@@ -18,7 +18,7 @@ flowchart TD
     CCP --> BDOS
     BDOS --> FS[FCB and filesystem routines]
     FS --> BIOS[BIOS record operations]
-    BIOS --> SD[SD sector driver in ROM: A and B]
+    BIOS --> SD[SD sector driver in ROM: A through K]
     BIOS --> RAM[Cartridge SRAM: C]
     COM --> Warm[JP 0 or RET: warm boot]
     Warm --> CCP
@@ -31,13 +31,15 @@ flowchart TD
 | `src/cartridge.asm` | Boot relocation/map switch, SD initialization, command packets, sector read/write, byte transfers |
 | `src/kernel.asm` | Fixed origins and include order; the kernel entry |
 | `src/bios.asm` | Fixed 17-entry BIOS jump table, cold/warm lifecycle, disk latches, SD deblocking, SRAM access, disk parameter tables |
+| `src/cache.asm` | Separate 512-byte data/directory caches, ordered flush, failed-write retention and fill invalidation |
 | `src/console.asm` | Screen cursor and control characters, keyboard scanning, pending-character state |
 | `src/ccp.asm` | Prompt loop, token/FCB parsing, built-ins, COM loading and application entry |
 | `src/bdos.asm` | Public register-saving wrapper, numbered dispatch table, console and drive services, workspace |
 | `src/filesystem.asm` | Drive selection, directory cache/scanning, allocation, FCB matching, sequential/random transfers, file size |
 | `programs/hello.asm` | Smallest application: print through BDOS and return |
 | `programs/copy.asm` | Two independent FCBs, DMA, read/write/close, refusal to overwrite |
-| `programs/cpmtest.asm` | Sequential/random I/O and read-back verification across A:, B: and C: |
+| `programs/sync.asm` | Explicit cache commit through BDOS disk reset |
+| `programs/cpmtest.asm`, `programs/ramtest.asm`, `programs/filetest.inc` | Shared progress, cancellation, sequential and random-read verification; A:-only SD regression or L:-only RAM file test |
 
 Section separators group related operations without moving machine code.
 Some routines deliberately fall through into the next routine, while others
@@ -75,7 +77,7 @@ it does not refer to a floppy mechanism.
 A: and B: each have 2,048 allocation blocks of 4 KiB. Their first four blocks
 hold 512 directory entries. Each directory entry describes up to 32 KiB using
 eight 16-bit block numbers. CP/M still counts logical extents in 16 KiB units,
-so the SD disk parameter block has EXM=1. C: uses 1 KiB blocks and byte-sized
+so the SD disk parameter block has EXM=1. L: uses 1 KiB blocks and byte-sized
 allocation entries; its first two blocks hold its 64 directory entries.
 
 An FCB is the application's mutable file state. Directory scanning uses a
@@ -99,8 +101,10 @@ Both emulator runners accept `--emulator /path/to/p2000m-emulator`, compile the
 actual emulator core and operate on temporary SD images. They do not modify
 the emulator checkout or a user's working card.
 
-The assembly regression fixture records hashes captured **before** the
-commenting pass. It checks the ROM, full kernel, original programs and TPA
+The assembly regression fixture records reviewed machine-code hashes. The
+cartridge, kernel and CPMTEST baselines include the boot diagnostics, progress
+reporting and cancellation changes; other artifacts retain their original hashes.
+It checks the ROM, full kernel, original programs and TPA
 boundary fixture, including their addresses, padding and fall-through layout.
 Do not automatically regenerate it on failure: a legitimate instruction
 change requires explicit review of the new baseline and behavioral tests.
@@ -117,7 +121,7 @@ The separate program suite boots a fresh machine/card for each utility:
 | HELLO | Expected console output and return to CCP |
 | COPY, PIP | Byte-exact binary copy across a 32 KiB extent boundary |
 | COPYEXISTS | Existing destination is refused and preserved byte-exact |
-| CPMTEST | Its read-back tests pass on all three drives |
+| CPMTEST | Its read-back tests cover A: only; RAMTEST covers L:, emulator tests cover all twelve |
 | ASM | Generated Intel HEX checksums and expected machine code |
 | LOAD | Independently supplied HEX becomes executable expected COM code |
 | DDT | Fill changes exactly the requested memory range; G0 returns |

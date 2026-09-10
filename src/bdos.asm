@@ -45,6 +45,25 @@ bdos_entry:
     ld a,c
     ld (function),a
     call bdos_dispatch
+    ; Metadata-only operations commit before returning. Sequential/random
+    ; writes remain buffered until CLOSE, eviction, reset or warm boot.
+    ld a,(function)
+    cp 19
+    jr z,bdos_commit
+    cp 22
+    jr z,bdos_commit
+    cp 23
+    jr z,bdos_commit
+    cp 30
+    jr nz,bdos_return
+bdos_commit:
+    push hl
+    call cache_flush
+    pop hl
+    or a
+    jr z,bdos_return
+    ld hl,0xff
+bdos_return:
     pop iy
     pop ix
     pop de
@@ -392,10 +411,16 @@ bdos_version:
 ; It does not format SRAM; formatting belongs exclusively to cold_boot.
 ; ----------------------------------------------------------------------------
 bdos_reset:
+    call cache_flush
+    or a
+    jp nz,return_ff
+    call cache_invalidate
     xor a
     ld (current_drive),a
     ld (read_only),a
+    ld (read_only+1),a
     ld (logged),a
+    ld (logged+1),a
     ld (4),a
     ld hl,0x80
     ld (user_dma),hl
@@ -405,14 +430,22 @@ bdos_reset:
 ; Routine: bdos_select
 ; BDOS 14: choose the logical default drive.
 ;
-; Inputs:   Low byte of [argument] = drive 0..2.
+; Inputs:   Low byte of [argument] = drive 0..11.
 ; Outputs:  HL=0 on valid selection, 00FFh otherwise.
 ; Clobbers: AF, HL; current_drive on success.
 ; ----------------------------------------------------------------------------
 bdos_select:
     ld a,(argument)
-    cp 3
+    cp drive_count
     jp nc,return_ff
+    push af
+    call cache_flush
+    or a
+    jr z,bdos_select_ready
+    pop af
+    jp return_ff
+bdos_select_ready:
+    pop af
     ld (current_drive),a
     jp return_zero
 
@@ -425,15 +458,15 @@ bdos_select:
 ; Clobbers: A, HL.
 ; ----------------------------------------------------------------------------
 bdos_login:
-    ld a,(logged)
-    jp return_a
+    ld hl,(logged)
+    ret
 
 ; ----------------------------------------------------------------------------
 ; Routine: bdos_current
 ; BDOS 25: return the current logical drive.
 ;
 ; Inputs:   No inputs.
-; Outputs:  HL = current_drive (0..2).
+; Outputs:  HL = current_drive (0..11).
 ; Clobbers: A, HL.
 ; ----------------------------------------------------------------------------
 bdos_current:
@@ -483,10 +516,14 @@ bdos_alloc:
 bdos_protect:
     ld a,(current_drive)
     call drive_mask
-    ld b,a
-    ld a,(read_only)
-    or b
-    ld (read_only),a
+    ld de,(read_only)
+    ld a,l
+    or e
+    ld l,a
+    ld a,h
+    or d
+    ld h,a
+    ld (read_only),hl
     jp return_zero
 
 ; ----------------------------------------------------------------------------
@@ -501,8 +538,8 @@ bdos_protect:
 ; errors are reported by the card/BIOS when a write is attempted.
 ; ----------------------------------------------------------------------------
 bdos_ro:
-    ld a,(read_only)
-    jp return_a
+    ld hl,(read_only)
+    ret
 
 ; ----------------------------------------------------------------------------
 ; Routine: bdos_dpb
@@ -517,7 +554,7 @@ bdos_dpb:
     jp nz,return_ff
     ld hl,dpb_sd
     ld a,(fs_drive)
-    cp 2
+    cp ram_drive
     ret nz
     ld hl,dpb_ram
     ret
@@ -544,11 +581,15 @@ user_get:
 ; Routine: bdos_reset_drives
 ; BDOS 37: reset selected login/protection bits.
 ;
-; Inputs:   Low byte of [argument] = drive mask; upper drives are not implemented.
+; Inputs:   [argument] = 16-bit drive mask; selective reset covers A:..L:.
 ; Outputs:  HL=0; selected logged and read_only bits cleared.
 ; Clobbers: AF, B, HL.
 ; ----------------------------------------------------------------------------
 bdos_reset_drives:
+    call cache_flush
+    or a
+    jp nz,return_ff
+    call cache_invalidate
     ld a,(argument)
     cpl
     ld b,a
@@ -558,6 +599,15 @@ bdos_reset_drives:
     ld a,(logged)
     and b
     ld (logged),a
+    ld a,(argument+1)
+    cpl
+    ld b,a
+    ld a,(read_only+1)
+    and b
+    ld (read_only+1),a
+    ld a,(logged+1)
+    and b
+    ld (logged+1),a
     jp return_zero
 
 ; BDOS private state, kept below its resident-code region and outside the TPA.
@@ -574,8 +624,8 @@ function: equ 0x9f04  ; byte: current BDOS function number
 current_drive: equ 0x9f05  ; byte: default drive, A=0/B=1/C=2
 user_number: equ 0x9f06  ; byte: current CP/M user area 0..15
 user_dma: equ 0x9f07  ; word: application 128-byte transfer buffer
-read_only: equ 0x9f09  ; byte: logical write-protection bitmask
-logged: equ 0x9f0a  ; byte: logged-in drive bitmask
+read_only: equ 0x9f34  ; word: logical write-protection bitmask A..P
+logged: equ 0x9f36  ; word: logged-in drive bitmask A..P
 fs_drive: equ 0x9f0b  ; byte: drive selected for current FCB
 alloc_ptr: equ 0x9f0c  ; word: selected drive allocation bitmap address
 block_shift: equ 0x9f0e  ; byte: log2(records per allocation block)
