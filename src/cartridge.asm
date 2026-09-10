@@ -597,6 +597,11 @@ write_wait:
 rom_restart:
     ; BIOS BOOT after a full-size COM must return through the stock monitor.
     di
+    ld a,3
+    out (0x8b),a
+    im 0
+    xor a
+    ld i,a                 ; JP 0 must restore the monitor's reset-time CPU state
     ld hl,restart_switch
     ld de,0x9000
     ld bc,restart_switch_end-restart_switch
@@ -617,9 +622,13 @@ include 'console.asm'
 include 'rom_tables.asm'
 include 'disk_io.asm'
 rom_runtime_end:
+defs 0xe7fe-$,0
+keyboard_vector: dw keyboard_interrupt
 defs rom_filesystem_base-$,0
 include 'filesystem.asm'
 rom_filesystem_end:
+include 'keyboard_repeat.asm'
+rom_keyboard_tail_end:
 defs rom_end-$,0
 
 ; File offset 2000 = stock cartridge 3000, copied to RAM 7000 at entry.

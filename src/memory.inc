@@ -1,5 +1,8 @@
 ; Single source of truth for the 0.3 resident layout (also read by host tools).
 boot_loader_base: equ 0x7000
+keyboard_stack_bottom: equ 0xdc00
+keyboard_stack_top: equ 0xdc80
+keyboard_queue: equ 0xdcc0
 kernel_load: equ 0xa000
 kernel_end: equ 0xd800
 kernel_bytes: equ 0x3800

@@ -33,8 +33,8 @@ warm-boot recovery prompt with dirty data retained. WBOOT never reformats L:.
 | --- | --- |
 | 0000–00FF | CP/M page zero |
 | 0100–CCFF | 51 KiB application TPA |
-| CD00–D5CE | Resident BDOS, CCP, BIOS vectors/warm restart and writable tables |
-| D5CF–D5FF | 49 bytes of code-growth margin |
+| CD00–D5EB | Resident BDOS, CCP, BIOS vectors/CTC setup/warm restart and writable tables |
+| D5EC–D5FF | 20 bytes of code-growth margin |
 | D600–D6FF | 256-byte private BDOS stack |
 | D700–D7FF | 256-byte CCP / initial transient stack |
 | D800–D9FF | 512-byte data-sector cache |
@@ -42,23 +42,28 @@ warm-boot recovery prompt with dirty data retained. WBOOT never reformats L:.
 | DA80–DB7F | Shared SD allocation bitmap |
 | DB80–DBBF | BDOS/filesystem workspace |
 | DBC0–DBFF | ROM SD state, boot diagnostics and CID |
-| DC00–DC7F | Reserved runtime space |
+| DC00–DC7F | 128-byte private keyboard interrupt stack |
 | DC80–DC8F | RAM-drive allocation bitmap |
 | DC90–DCAD | Sector-cache descriptors, state and counters |
+| DCC0–DCFF | Keyboard FIFO (64 slots, 63 usable) |
 | DD00–DD7F | Internal 128-byte DMA buffer |
 | DD80–DD9F | Directory-entry staging |
 | DDA0–DDC3 | Search FCB |
+| DDC4–DDE0 | Keyboard matrix history, queue/repeat/control state and saved IRQ SP |
 | DE00–DFFF | 512-byte directory-sector cache |
-| E000–E26D | ROM SD/display/restart core |
-| E26E–E75B | ROM console, cache, disk operations and read-only tables |
-| E75C–E7FF | 164 spare ROM bytes |
+| E000–E276 | ROM SD/display/restart core |
+| E277–E7EF | ROM keyboard/console, cache, disk operations and read-only tables |
+| E7F0–E7FD | 14 spare ROM bytes |
+| E7FE–E7FF | IM2 keyboard vector |
 | E800–EFBC | 1,981-byte ROM filesystem engine |
-| EFBD–EFFF | 67 spare ROM bytes |
+| EFBD–EFD4 | ROM keyboard-repeat routine |
+| EFD5–EFFF | 43 spare ROM bytes |
 | F000–FFFF | Video; not application RAM |
 
 Other workspace gaps remain reserved. The co-board exposes 56 KiB of linear
 RAM; the 128 KiB cartridge SRAM disk is accessed through I/O ports and cannot
-extend the linear TPA. ROM has 231 spare bytes in two gaps.
+extend the linear TPA. ROM has 57 spare bytes in two gaps. The interrupt-driven
+keyboard uses previously reserved workspace, so the TPA remains 51 KiB.
 
 ## Link, compatibility and tests
 

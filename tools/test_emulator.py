@@ -83,11 +83,13 @@ def main():
         if actual != expected + b'\x1a' * (-len(expected) % 128):
             raise AssertionError(f'Bundled utility mismatch: {source.name}')
     print('PASS: all seven standard utilities are present byte-exact in the built SD image', flush=True)
-    for name in ('cache', 'boot', 'cpm'):
+    for name in ('keyboard', 'cache', 'boot', 'cpm'):
         compile_harness(args.emulator, name)
         with tempfile.TemporaryDirectory(prefix='p2000m-cpm-') as tmp:
             card = Path(tmp) / 'writable.img'
             files = [build / 'HELLO.COM', build / 'CPMTEST.COM', build / 'COPY.COM'] if name == 'cpm' else []
+            if name == 'keyboard':
+                files = [build / 'HELLO.COM']
             if name == 'cpm':
                 files += CORE_FILES
                 hex_test = Path(tmp) / 'HEXTEST.BIN'
@@ -106,6 +108,11 @@ def main():
             install_kernel(card, (build / 'kernel.bin').read_bytes())
             original_fat = fat_digest(card)
             command = [str(build / (name + '-test')), str(args.emulator), str(build), str(card)]
+            if name == 'keyboard':
+                for fixture in ('keyboard_irq', 'keyboard_io'):
+                    binary = Path(tmp) / (fixture + '.bin')
+                    subprocess.run(['z80asm', '-o', str(binary), str(ROOT / 'tests' / (fixture + '.asm'))], check=True)
+                    command.append(str(binary))
             subprocess.run(command, check=True)
             if fat_digest(card) != original_fat:
                 raise AssertionError('CP/M operations modified the FAT32 partition')

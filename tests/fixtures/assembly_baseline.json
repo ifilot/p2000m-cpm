@@ -1,13 +1,13 @@
 {
-  "description": "Version 0.3.0 raw assembly baseline, SOURCE_DATE_EPOCH=0. Disposable RAM loader and cold initialization, ROM console/cache/disk operations/tables/filesystem, checked cross-link, 52224-byte TPA. A-only CPMTEST and L-only RAMTEST unchanged.",
+  "description": "Version 0.3.0 raw assembly baseline, SOURCE_DATE_EPOCH=0. Disposable bootstrap, ROM drivers/filesystem, IM2 keyboard with debounce/FIFO/repeat and DI fallback, checked cross-link, 52224-byte TPA. A-only CPMTEST and L-only RAMTEST unchanged.",
   "artifacts": {
     "src/cartridge.asm": {
       "bytes": 9582,
-      "sha256": "88cc465cdbd0cd7aa19387553408c1a51807da10724b71e8555f020d1b59652b"
+      "sha256": "29df4217cd91b47963da113c68e179a9bd7d4f572b28e08f4e5892c5488ae2a2"
     },
     "src/kernel.asm": {
       "bytes": 14336,
-      "sha256": "53896fa214755548730c5e791769014876e2285988ac08ceaad1bbb84fd13a1e"
+      "sha256": "d9a8459aff6ff40a298c0f36c18275b0393c9cd5cddce604e4841ea751fbc07b"
     },
     "programs/copy.asm": {
       "bytes": 510,

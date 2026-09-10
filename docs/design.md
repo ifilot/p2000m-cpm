@@ -18,8 +18,9 @@ Its flag byte is 5Ch, clearing the floppy-DOS request bit previously set in
 5Eh. Monitor ROM 0313h tests that bit before calling its floppy loader at
 0E90h. We retain normal monitor validation and print immediately after entry;
 we do not use the 58h shortcut that bypasses normal monitor initialization.
-CTC channels 0–3 are disabled with control 03h at cartridge entry so programs
-such as DDT can enable interrupts without reviving monitor keyboard interrupts.
+CTC channels 0–3 are disabled with control 03h at cartridge entry. Kernel warm
+entry installs our own IM2 configuration and enables channel 3 for 50 Hz keyboard
+scanning; the monitor's interrupt handlers are never used after remapping.
 A 16 KiB ROM is mapped at stock addresses 1000–4FFF. Unused space is padded
 with 00h; the header length is 3FFBh and the checksum covers offsets 5–3FFFh.
 The runtime ROM remains at file offset 1000h (stock 2000h, mapped E000h).
@@ -206,11 +207,22 @@ return both bytes; BDOS 37 selectively resets both bytes.
 Newly allocated blocks are zeroed, including function 40
 writes. No journal or power-loss atomicity is claimed.
 
-The console directly scans the keyboard matrix and writes video RAM. It
-supports scrolling, CR/LF, tabs, backspace and form feed. Escape prefixes provide
-control characters without changing the emulator's key mapping. Full terminal
-escape-sequence emulation, interrupt-driven input and typematic repeat are not
-implemented. Interactive programs should use the simple CP/M console interface.
+The console writes video RAM and supports scrolling, CR/LF, tabs, backspace and
+form feed. Keyboard scanning runs from the CTC channel-3 interrupt at 50 Hz,
+with per-key two-sample debounce and a 63-byte FIFO. Shift and Escape-prefix
+translation happen when events enter the queue. Repeat starts after 50 ticks
+and then repeats every two ticks. Full terminal escape-sequence emulation is
+not implemented; programs should use the simple CP/M console interface.
+
+The IM2 vector is a ROM word at E7FE (I=E7, CTC base F8, channel-3 vector FE).
+The ISR saves main registers and IX on its own 128-byte stack, leaving IY and
+alternate registers untouched. It never calls BDOS or accesses SD state. FIFO
+head is published after storing a byte; the consumer releases a slot only
+after reading it. Overflow retains old input and sets a sticky diagnostic flag.
+DI console callers run two synchronous scans without changing their interrupt
+state; repeat is never advanced by application polling. BIOS warm boot restores
+IM2/CTC ownership, while cold restart disables the keyboard CTC and restores
+IM0/I=0 before entering the monitor.
 
 ## Verification
 

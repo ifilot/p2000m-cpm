@@ -37,7 +37,9 @@ flowchart TD
 | `src/disk_io.asm` | ROM disk latches, SD deblocking and SRAM access |
 | `src/rom_tables.asm` | Read-only BDOS dispatch and disk parameter blocks |
 | `src/cache.asm` | Separate 512-byte data/directory caches, ordered flush, failed-write retention and fill invalidation |
-| `src/console.asm` | Screen cursor and control characters, keyboard scanning, pending-character state |
+| `src/console.asm` | Screen cursor, control characters and keyboard translation tables |
+| `src/keyboard.asm`, `src/keyboard_repeat.asm` | CTC/IM2 handler, per-key debounce, FIFO, polling fallback and repeat |
+| `src/keyboard.inc` | Keyboard state in previously unused workspace |
 | `src/ccp.asm` | Prompt loop, token/FCB parsing, built-ins, COM loading and application entry |
 | `src/bdos.asm` | Public register-saving wrapper, numbered dispatch table, console and drive services, workspace |
 | `src/filesystem.asm` | Drive selection, directory cache/scanning, allocation, FCB matching, sequential/random transfers, file size |

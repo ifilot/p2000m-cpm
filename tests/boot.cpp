@@ -27,7 +27,7 @@ static void launch(P2000Machine &m, const std::string &emu, const std::string &b
 static unsigned invoke(P2000Machine &m, int entry, unsigned bc = 0) {
     // A test-only NMI trampoline calls the real BIOS without CPU service hooks.
     const unsigned char code[] = {
-        0x31,0,0x9c, 0x01,static_cast<unsigned char>(bc),static_cast<unsigned char>(bc >> 8),
+        0xf3,0x31,0,0x9c, 0x01,static_cast<unsigned char>(bc),static_cast<unsigned char>(bc >> 8),
         0xcd,static_cast<unsigned char>(p2m_layout::bios + entry * 3),
         static_cast<unsigned char>((p2m_layout::bios + entry * 3) >> 8),
         0x32,0x20,0x9e, 0x22,0x22,0x9e, 0x3e,0x5a,0x32,0x21,0x9e,0x76
@@ -215,7 +215,7 @@ int main(int argc, char **argv) {
                 " screen="+screen(m));
         frames(m,700);
         require(m.coBoardMapped() && screen(m).find("BOOT COMPLETE")!=std::string::npos,
-                "Cold restart failed after TPA overwrite");
+                "Cold restart failed after TPA overwrite; PC="+std::to_string(m.programCounter())+" "+screen(m));
         require(m.peekMemory(0xa000)==0xc3,"Cold restart did not reload kernel");
         select_record(m,11,512);
         require(invoke(m,13)==0,"Cold-restarted RAM disk unavailable");

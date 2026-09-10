@@ -21,7 +21,7 @@ static unsigned call(P2000Machine &m,unsigned address,unsigned bc=0,unsigned de=
     m.pokeMemory(0x66,0xc3);m.pokeMemory(0x67,0);m.pokeMemory(0x68,0x80);
     m.pokeMemory(0x8000,0xc3);m.pokeMemory(0x8001,0);m.pokeMemory(0x8002,0x80);
     m.requestNmi();frames(m,1);
-    const unsigned char code[]={0x31,0,0x95,0x01,(unsigned char)bc,(unsigned char)(bc>>8),
+    const unsigned char code[]={0xf3,0x31,0,0x95,0x01,(unsigned char)bc,(unsigned char)(bc>>8),
         0x11,(unsigned char)de,(unsigned char)(de>>8),0xcd,(unsigned char)address,(unsigned char)(address>>8),
         0x32,0x70,0x9e,0x22,0x72,0x9e,0x3e,0x5a,0x32,0x71,0x9e,0x76};
     for(unsigned i=0;i<sizeof(code);++i)m.pokeMemory(0x8000+i,code[i]);
@@ -42,7 +42,7 @@ static unsigned call(P2000Machine &m,unsigned address,unsigned bc=0,unsigned de=
         m.stepInstruction();
     }
     require(steps<20000000,"Cache call failed to return");
-    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom})
+    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom,p2m_layout::keyboard_stack_bottom})
         for(unsigned i=0;i<16;++i)
             require(m.peekMemory(base+i)==0xa5,"Cache/recovery exceeded resident stack budget");
     return m.peekMemory(0x9e70);
@@ -69,7 +69,7 @@ static void boot(P2000Machine &m,const std::string &emu,const std::string &build
     m.installCoBoard();m.sdCartridge().install();
     require(m.sdCartridge().insert(card,false,&error),error);frames(m,700);
     require(screen(m).find("A>")!=std::string::npos,"Cache fixture did not boot");
-    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom})
+    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom,p2m_layout::keyboard_stack_bottom})
         for(unsigned i=0;i<16;++i)m.pokeMemory(base+i,0xa5);
 }
 static Traffic workload(P2000Machine &m,bool cached) {

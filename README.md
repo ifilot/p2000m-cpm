@@ -116,7 +116,8 @@ The timestamp describes the compiled ROM/kernel, not card formatting time.
 The cartridge header disables the monitor's floppy-DOS boot request. The
 first cartridge message is printed before clearing the rest of the screen;
 monitor startup/RAM checks before cartridge entry still take place. The ROM
-also disables the monitor's CTC channels because our console polls the keyboard.
+also disables the monitor's CTC channels. After kernel initialization, our own
+IM2 keyboard handler uses CTC channel 3 at the 50 Hz video-field rate.
 
 SD initialization makes up to eight attempts, restarting the SD initialization
 sequence (including CMD0 reset) after a roughly 500 ms pause between failures.
@@ -222,6 +223,14 @@ existing destination. `SAVE` likewise refuses an existing filename.
 Return completes a command. Backspace edits the line. Letters are lowercase
 by default; either Shift key produces uppercase letters and shifted punctuation.
 Commands and filenames remain case-insensitive.
+Input is scanned in the background, including during SD I/O, with a
+63-character type-ahead queue. Two equal 20 ms samples debounce each key;
+normal press recognition takes approximately 20–40 ms. Overlapping keys are
+tracked independently. Held-key repeat starts after one second and repeats
+every 40 ms. The full queue preserves older input and drops new events, setting
+the diagnostic overflow flag at DDDEh. Interrupt-disabled console calls use a
+synchronous polling fallback; keys pressed and released while an application
+keeps interrupts disabled cannot be captured in the background.
 **Escape followed by a letter sends its control code** (for example Escape, C
 for Ctrl-C; Escape, Z for Ctrl-Z). Escape twice sends a literal Escape. This
 provides control characters through the emulator's existing keyboard mapping.

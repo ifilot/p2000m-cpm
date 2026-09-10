@@ -24,6 +24,10 @@ class MemoryLayoutTests(unittest.TestCase):
         self.assertEqual(LAYOUT['resident_code_limit'], LAYOUT['bdos_stack_bottom'])
         self.assertEqual(LAYOUT['bdos_stack_top'], LAYOUT['system_stack_bottom'])
         self.assertEqual(LAYOUT['system_stack_top'], LAYOUT['kernel_end'])
+        self.assertEqual(LAYOUT['keyboard_stack_top'] - LAYOUT['keyboard_stack_bottom'], 128)
+        self.assertEqual(LAYOUT['keyboard_stack_top'], LAYOUT['allocation_c'])
+        self.assertEqual(LAYOUT['keyboard_queue'], 0xdcc0)
+        self.assertEqual(LAYOUT['keyboard_queue'] + 64, 0xdd00)
         self.assertIn('51.00 KiB (52224 bytes)', TPA_TEXT)
 
     def test_link_from_clean_directory_is_reproducible(self):
@@ -37,6 +41,9 @@ class MemoryLayoutTests(unittest.TestCase):
                 exported = link_core(ROOT, root / 'build')
                 self.assertEqual(exported['bdos_entry'], LAYOUT['tpa_limit'])
                 self.assertLessEqual(exported['rom_filesystem_end'], 0xf000)
+                self.assertLessEqual(exported['rom_keyboard_tail_end'], 0xf000)
+                self.assertEqual(exported['keyboard_vector'], 0xe7fe)
+                self.assertLessEqual(exported['rom_runtime_end'], exported['keyboard_vector'])
                 self.assertLessEqual(exported['resident_code_end'], LAYOUT['resident_code_limit'])
                 results.append(tuple((root / 'build' / name).read_bytes()
                                      for name in ('cartridge.bin', 'kernel.bin')))

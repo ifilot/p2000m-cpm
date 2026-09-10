@@ -8,7 +8,7 @@ static void frames(P2000Machine &m,int n) { while(n--) m.runFrame(); }
 static std::string screen(P2000Machine &m) {return std::string((const char*)m.characters(),1920);}
 static void require(bool b,const std::string &s) {if(!b) throw std::runtime_error(s);}
 static void stack_guards(P2000Machine &m,bool initialize) {
-    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom})
+    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom,p2m_layout::keyboard_stack_bottom})
         for(unsigned i=0;i<16;++i) {
             if(initialize)m.pokeMemory(base+i,0xa5);
             else require(m.peekMemory(base+i)==0xa5,"Resident stack exceeded its guarded budget");
@@ -49,7 +49,7 @@ static void wait_text(P2000Machine &m,const std::string &text) {
 }
 static unsigned bdos(P2000Machine &m,unsigned fn,unsigned arg=0) {
     const unsigned char code[]={
-        0x31,0,0x95,0x0e,static_cast<unsigned char>(fn),0x11,
+        0xf3,0x31,0,0x95,0x0e,static_cast<unsigned char>(fn),0x11,
         static_cast<unsigned char>(arg),static_cast<unsigned char>(arg>>8),0xcd,5,0,
         0x32,0x40,0x9e,0x22,0x42,0x9e,0x3e,0x5a,0x32,0x41,0x9e,0x76
     };

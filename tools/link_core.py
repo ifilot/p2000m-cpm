@@ -9,7 +9,6 @@ from memory_layout import LAYOUT
 
 KERNEL_API = ('return_zero', 'return_ff', 'return_a', 'selected', 'dph_a',
               'track', 'record', 'dma', 'writing', 'cursor', 'column',
-              'key_pending', 'key_ready', 'key_row', 'key_mask', 'key_escape',
               'warm_boot', 'bdos_input', 'bdos_output', 'bdos_reader',
               'bdos_direct', 'bdos_iobyte', 'bdos_setio', 'bdos_string', 'bdos_line',
               'bdos_status', 'bdos_version', 'bdos_reset', 'bdos_select', 'bdos_login',
@@ -38,7 +37,7 @@ def link_core(root, output):
     exports(generated / 'kernel_exports.inc', KERNEL_API, dict.fromkeys(KERNEL_API, 0))
     probe = assemble(root / 'src/cartridge.asm', generated / 'rom_probe.bin', root, generated)
     names = []
-    for source in ('filesystem.asm', 'cache.asm', 'console.asm', 'rom_tables.asm', 'disk_io.asm'):
+    for source in ('filesystem.asm', 'cache.asm', 'console.asm', 'keyboard.asm', 'keyboard_repeat.asm', 'rom_tables.asm', 'disk_io.asm'):
         names += re.findall(r'^(\w+):', (root / 'src' / source).read_text(), re.M)
     names += ['rom_restart']
     exports(generated / 'rom_exports.inc', names, probe)
@@ -58,6 +57,8 @@ def link_core(root, output):
     assert all(rom[name] == probe[name] for name in names), 'ROM link changed layout'
     assert rom['rom_runtime_end'] <= LAYOUT['rom_filesystem_base']
     assert rom['rom_filesystem_end'] <= LAYOUT['rom_end']
+    assert rom['rom_keyboard_tail_end'] <= LAYOUT['rom_end']
+    assert rom['keyboard_vector'] == 0xe7fe
     assert rom['boot_loader_end'] <= 0x8000, 'Loader exceeds stock D000-DFFF copy window'
     cartridge = (output / 'cartridge.bin').read_bytes()
     assert len(cartridge) == 0x2000 + rom['boot_loader_end'] - LAYOUT['boot_loader_base']
@@ -66,5 +67,7 @@ def link_core(root, output):
     kernel_tag = kernel['ui_signature'] - LAYOUT['kernel_load'] + 8
     assert kernel_bytes[kernel_tag:kernel_tag + 16] == fingerprint
     return {**LAYOUT, **{key: kernel[key] for key in ('bios', 'bdos_entry', 'resident_code_end', 'cold_code_end')},
-            **{key: rom[key] for key in ('rom_driver_end', 'rom_runtime_end', 'rom_filesystem_end', 'boot_loader_end',
-                                        'header_check', 'kernel_checksum', 'boot_sd_retry')}}
+            **{key: rom[key] for key in ('rom_driver_end', 'rom_runtime_end', 'rom_filesystem_end', 'rom_keyboard_tail_end', 'boot_loader_end',
+                                        'header_check', 'kernel_checksum', 'boot_sd_retry',
+                                        'keyboard_interrupt', 'keyboard_vector', 'key_head', 'key_tail',
+                                        'key_overflow', 'key_repeat_count')}}

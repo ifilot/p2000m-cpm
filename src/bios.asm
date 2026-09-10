@@ -57,6 +57,26 @@ bios:
 ; reinstalls page-zero vectors and the default DMA without touching L: data.
 ; ============================================================================
 
+; Restore the system's CTC/IM2 ownership before entering the CCP.
+keyboard_enable:
+    di
+    ld a,3
+    out (0x88),a
+    out (0x89),a
+    out (0x8a),a
+    out (0x8b),a
+    im 2
+    ld a,0xe7
+    ld i,a
+    ld a,0xf8
+    out (0x88),a             ; channel 3 vector FE -> ROM word E7FE
+    ld a,0xd5
+    out (0x8b),a
+    ld a,1
+    out (0x8b),a
+    ei
+    ret
+
 ; Cold restart flushes first; failure preserves state via warm-boot recovery.
 cold_restart:
     call cache_flush
@@ -76,6 +96,7 @@ cold_restart:
 ; ----------------------------------------------------------------------------
 warm_boot:
     ld sp,system_stack_top
+    call keyboard_enable
 warm_flush:
     call cache_flush
     or a
@@ -132,11 +153,6 @@ dph_k: dw 0,0,0,0,directory_buffer,dpb_sd,0,allocation_a
 dph_l: dw 0,0,0,0,directory_buffer,dpb_ram,0,allocation_c
 include 'implementation.inc'
 column: db 0
-key_pending: db 0
-key_ready: db 0
-key_row: db 0
-key_mask: db 0
-key_escape: db 0
 selected: db 0
 writing: db 0
 track: dw 0
