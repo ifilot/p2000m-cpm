@@ -26,7 +26,7 @@ include 'memory.inc'
 ; ----------------------------------------------------------------------------
 tpa_test_start:
     ; Exercise real SD reads, dirty cache writes, close and reset while the
-    ; entire reclaimed 9800-C3FF region contains application-owned sentinels.
+    ; reclaimed boot-loader and kernel regions contain application-owned sentinels.
     ld de,fcb
     ld c,15
     call 5
@@ -72,8 +72,8 @@ tpa_test_start:
     call 5
     cp 0xff
     jr z,failed
-    ld hl,0x9800
-    ld bc,tpa_limit-0x9800
+    ld hl,boot_loader_base
+    ld bc,tpa_limit-boot_loader_base
 tpa_guard_loop:
     ld a,(hl)
     cp 0xa5

@@ -1,7 +1,7 @@
 # Boot screen proposal
 
 The PNGs from `preview_boot.py` are design mockups, **not firmware captures**.
-The chosen twelve-drive design is now implemented in version 0.2.0; the
+The chosen twelve-drive design is now implemented in version 0.3.0; the
 `boot-characters.bin`/`boot-attributes.bin` dumps from the boot regression
 contain an actual emulator capture. Historical mockups retain sample versions.
 
@@ -75,7 +75,7 @@ volatility warning; a blank line separates the boot result from the prompt.
 The example assumes twelve drives total: eleven 8 MiB SD volumes (88 MiB in
 total) and a 128 KiB RAM disk at L: (126 KiB usable), moved from C: in the proposed
 layout. This is a proposed
-configuration, now used by the 0.2.0 build. No partition or filesystem changes are made by rendering
+configuration, now used by the 0.3.0 build. No partition or filesystem changes are made by rendering
 these previews. The ready-only grids assume every listed drive has passed
 validation; pending/error states would replace capacities with explicit status
 where validation has not succeeded.

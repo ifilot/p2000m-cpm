@@ -122,12 +122,19 @@ int main(int argc,char **argv) {
             require(screen(file).find("SD flush failed: dirty data retained")!=std::string::npos,
                     "Warm boot silently ignored failed commit");
             require(file.peekMemory(0xdc91)==1 && file.peekMemory(0xdc99)==1,"Warm boot discarded pending file");
+            // Public cold restart must also refuse to reset while a commit
+            // fails; both data and directory must survive its fallback.
+            file.pokeMemory(0x67,p2m_layout::bios&255);file.pokeMemory(0x68,p2m_layout::bios>>8);
+            file.requestNmi();frames(file,100);
+            require(file.coBoardMapped(),"Cold restart reset the machine despite a failed flush");
+            require(file.peekMemory(0xdc91)==1 && file.peekMemory(0xdc99)==1,
+                    "Cold restart discarded pending file on flush failure");
             require(file.sdCartridge().insert(fileCard,false,&error),error);
             file.setKey(4,7,true);frames(file,300);file.setKey(4,7,false);frames(file,20);
             require(!file.peekMemory(0xdc91) && !file.peekMemory(0xdc99),"Warm boot R did not commit");
             require(sector(fileCard,133153)[0]==99 && sector(fileCard,133120)[15]==5,
                     "Warm boot lost file data or length");
-            std::cout<<"PASS: CLOSE ordering, directory-write failure retention, retry and warm-boot recovery\n";
+            std::cout<<"PASS: CLOSE ordering, directory-write failure retention, retry and warm/cold-boot recovery\n";
         }
         P2000Machine m;boot(m,emu,build,card);
         auto t=workload(m,true);

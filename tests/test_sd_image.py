@@ -20,13 +20,13 @@ class ImageTests(unittest.TestCase):
             original = bytes(range(256)) * (1024 * 1024 // 256)
             path.write_bytes(original)
             kernel = bytearray(sd.LAYOUT['kernel_bytes'])
-            kernel[3:11] = b'P2MCPM02'
+            kernel[3:11] = b'P2MCPM03'
             sd.install_kernel(path, kernel)
             actual = path.read_bytes()
             end = (16 + sd.LAYOUT['kernel_sectors']) * 512
             self.assertEqual(actual[:15*512], original[:15*512])
             self.assertEqual(actual[end:], original[end:])
-            self.assertEqual(actual[15*512:15*512+8], b'P2MSYS02')
+            self.assertEqual(actual[15*512:15*512+8], b'P2MSYS03')
             self.assertEqual(actual[16*512:end], kernel)
             self.assertEqual(struct.unpack_from('<HH', actual, 15*512+8),
                              (len(kernel), sum(kernel) & 0xffff))

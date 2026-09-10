@@ -10,16 +10,17 @@ points and returns to the command prompt without formatting SRAM.
 
 ```mermaid
 flowchart TD
-    ROM[Port-1 boot ROM] --> Kernel[SD-loaded kernel]
+    ROM[Port-1 boot ROM] --> Loader[Disposable RAM loader]
+    Loader --> Kernel[SD-loaded kernel]
     Kernel --> Cold[BIOS cold boot]
     Cold --> CCP[Command processor]
     CCP --> COM[Transient COM program]
     COM --> BDOS[CALL 5: BDOS]
     CCP --> BDOS
-    BDOS --> FS[FCB and filesystem routines]
-    FS --> BIOS[BIOS record operations]
+    BDOS --> FS[ROM filesystem routines]
+    FS --> BIOS[ROM BIOS record operations and cache]
     BIOS --> SD[SD sector driver in ROM: A through K]
-    BIOS --> RAM[Cartridge SRAM: C]
+    BIOS --> RAM[Cartridge SRAM: L]
     COM --> Warm[JP 0 or RET: warm boot]
     Warm --> CCP
 ```
@@ -30,7 +31,11 @@ flowchart TD
 | --- | --- |
 | `src/cartridge.asm` | Boot relocation/map switch, SD initialization, command packets, sector read/write, byte transfers |
 | `src/kernel.asm` | Fixed origins and include order; the kernel entry |
-| `src/bios.asm` | Fixed 17-entry BIOS jump table, cold/warm lifecycle, disk latches, SD deblocking, SRAM access, disk parameter tables |
+| `src/bios.asm` | Fixed 17-entry BIOS jump table, safe cold restart, warm lifecycle and writable disk/console state |
+| `src/boot_loader.asm` | Disposable RAM loader: header/checksum validation, retries, CID and boot messages |
+| `src/cold_boot.asm` | Disposable kernel initialization, SRAM formatting and dashboard strings |
+| `src/disk_io.asm` | ROM disk latches, SD deblocking and SRAM access |
+| `src/rom_tables.asm` | Read-only BDOS dispatch and disk parameter blocks |
 | `src/cache.asm` | Separate 512-byte data/directory caches, ordered flush, failed-write retention and fill invalidation |
 | `src/console.asm` | Screen cursor and control characters, keyboard scanning, pending-character state |
 | `src/ccp.asm` | Prompt loop, token/FCB parsing, built-ins, COM loading and application entry |
@@ -102,7 +107,7 @@ actual emulator core and operate on temporary SD images. They do not modify
 the emulator checkout or a user's working card.
 
 The assembly regression fixture records reviewed machine-code hashes. The
-0.2.0 ROM/kernel baseline includes the split ROM filesystem and relocated
+0.3.0 ROM/kernel baseline includes the split ROM filesystem and relocated
 workspace/TPA. SOURCE_DATE_EPOCH=0 fixes metadata during the assembly regression.
 The two-pass link checks all ROM/RAM cross-references and rejects region overflow.
 It checks the ROM, full kernel, original programs and TPA

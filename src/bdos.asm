@@ -104,15 +104,6 @@ bdos_dispatch:
 ; list/punch calls are no-ops, and reserved functions 38/39 return zero.
 ; ============================================================================
 
-bdos_table:
-    dw warm_boot,bdos_input,bdos_output,bdos_reader,return_zero,return_zero
-    dw bdos_direct,bdos_iobyte,bdos_setio,bdos_string,bdos_line,bdos_status
-    dw bdos_version,bdos_reset,bdos_select,fs_open,fs_close,fs_first,fs_next
-    dw fs_delete,fs_read,fs_write,fs_make,fs_rename,bdos_login,bdos_current
-    dw bdos_dma,bdos_alloc,bdos_protect,bdos_ro,fs_attributes,bdos_dpb,bdos_user
-    dw fs_random_read,fs_random_write,fs_size,fs_setrandom,bdos_reset_drives
-    dw return_zero,return_zero,fs_random_write
-
 ; ============================================================================
 ; RESULT ADAPTERS: normalize scalar BDOS results to HL
 ; These helpers are tail-jump exits. The public entry later copies L to A
@@ -619,4 +610,4 @@ bdos_reset_drives:
 ; ============================================================================
 
 include 'bdos_workspace.inc'
-include 'filesystem_exports.inc'
+; ROM entry points are supplied by rom_exports.inc in kernel.asm.

@@ -55,7 +55,7 @@ def design(state):
           '  TPA     pending kernel verification')
     s.border(4)
     s.item(5, 'Cartridge', '16 KiB ROM   1000-4FFF', 'OK')
-    s.item(6, 'Co-board', 'RAM enabled  /  ROM loader E000', 'OK')
+    s.item(6, 'Co-board', 'RAM enabled  /  RAM loader 7000', 'OK')
     s.item(7, 'Kernel', f'{KERNEL_RANGE}  /  signature + checksum' if ready else
            f'{KERNEL_RANGE}  /  SD sectors 16-{15 + LAYOUT["kernel_sectors"]}', 'OK' if ready else
            ('NOT LOADED' if failed else 'LOADING'))

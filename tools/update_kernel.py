@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create an upgraded copy of a 0.1/0.2 SD image, preserving its files/partitions."""
+"""Create an upgraded copy of a 0.1/0.2/0.3 SD image, preserving its files/partitions."""
 import argparse
 from pathlib import Path
 import shutil
@@ -13,8 +13,8 @@ def upgrade(source, destination, kernel_path):
     if not source.is_file():
         raise ValueError('Source must be a regular image file, not a physical device')
     kernel = kernel_path.read_bytes()
-    if len(kernel) != LAYOUT['kernel_bytes'] or kernel[3:11] != b'P2MCPM02':
-        raise ValueError('Expected a version 0.2 kernel')
+    if len(kernel) != LAYOUT['kernel_bytes'] or kernel[3:11] != b'P2MCPM03':
+        raise ValueError('Expected a version 0.3 kernel')
     with source.open('rb') as old:
         mbr = old.read(512)
         if (len(mbr) != 512 or mbr[510:] != b'\x55\xaa' or
@@ -40,7 +40,7 @@ def main():
         upgrade(args.source, args.destination, args.kernel)
     except (ValueError, OSError) as error:
         parser.exit(1, f'{error}\n')
-    print(f'Created {args.destination}; source unchanged. Also install the matching 0.2 ROM.')
+    print(f'Created {args.destination}; source unchanged. Also install the matching 0.3 ROM.')
 
 
 if __name__ == '__main__':

@@ -1,4 +1,4 @@
-# P2000M SD CP/M — 0.2.0
+# P2000M SD CP/M — 0.3.0
 
 An original Z80 assembly implementation of the CP/M 2.2 interface for a
 P2000M with its **CP/M co-board installed**, a 16 KiB boot cartridge in port 1,
@@ -36,7 +36,7 @@ contains the MBR, system header and kernel. FAT32 is host-accessible;
 | L: | SCRATCH | SRAM / 128 KiB; 126 KiB usable |
 
 Labels suggest uses, not restrictions. Apart from A: and C:, SD drives start
-empty. The version 0.2.0 BIOS deliberately rejects the old two-partition
+empty. The version 0.3.0 BIOS deliberately rejects the old two-partition
 CP/M layout before permitting writes.
 
 **Upgrade requires both the new port-1 ROM and an updated SD kernel.** Back up files
@@ -45,9 +45,9 @@ table and contents. The build never writes to a physical card or your separately
 named working image. Keep the old ROM/image pair together if you want to return
 to the earlier version. A header/ABI guard rejects older artifacts; a link fingerprint guards ROM/kernel cross-references.
 
-## Updating an existing 0.1.0 image
+## Updating an existing 0.1.0 or 0.2.0 image
 
-The eleven SD volumes and their files are unchanged by 0.2.0. To retain your
+The eleven SD volumes and their files are unchanged by 0.3.0. To retain your
 files, first back up/read your existing card into an image, then create an
 upgraded copy:
 
@@ -57,7 +57,7 @@ python3 tools/update_kernel.py existing-card.img upgraded-card.img
 
 The tool validates the layout, refuses to overwrite an existing destination,
 and changes only the kernel/header in the copy. It does not access physical
-cards. Install the matching 0.2.0 cartridge ROM as well. Writing the freshly
+cards. Install the matching 0.3.0 cartridge ROM as well. Writing the freshly
 built template instead would replace existing files with the bundled defaults.
 
 ## Build and test
@@ -100,15 +100,15 @@ In the emulator, install the CP/M co-board, load `cartridge.bin` in cartridge
 slot 1, install the SD cartridge in slot 2, and attach a writable copy of the
 SD template image. Leave the floppy drives empty and reset. The machine should
 show the 80×24 boot dashboard and `A>` on line 21. It includes separate
-ROM/kernel versions and UTC build timestamps, a 48.75 KiB (49,920-byte) TPA
-at 0100–C3FF, hardware/card status, and twelve named drives in three columns.
+ROM/kernel versions and UTC build timestamps, a 51 KiB (52,224-byte) TPA
+at 0100–CCFF, hardware/card status, and twelve named drives in three columns.
 Activity updates in place on line 19; errors retain command/response details
 on line 20, and no stale diagnostics appear below a working prompt.
 Reverse-video headings scroll with the text and are cleared for application
 output. Full-screen clear also resets attributes.
 
 Version comes from `VERSION`; applications still receive CP/M version 2.2.
-The 48.75 KiB TPA is the current software limit, not the co-board's total
+The 51 KiB TPA is the current software limit, not the co-board's total
 56 KiB RAM capacity. See the [memory budget and ROM-resident filesystem](docs/memory-budget.md).
 `SOURCE_DATE_EPOCH` can fix build timestamps for reproducible artifacts.
 The timestamp describes the compiled ROM/kernel, not card formatting time.
@@ -137,7 +137,7 @@ is guessed from the numeric ID.
 For physical hardware, program the port-1 ROM and write the **whole raw image**
 to an SDHC card of at least 4 GB. Copying the `.img` file into an existing FAT
 filesystem is not equivalent. The preceding 16 KiB build was reported to boot
-on a physical P2000M; version 0.2.0 has been tested in the
+on a physical P2000M; version 0.3.0 has been tested in the
 supplied emulator and awaits a hardware trial. Its SPI driver targets the
 emulator's PCB v6+ byte-wide cartridge interface and SDHC block addressing.
 

@@ -398,9 +398,3 @@ null_input:
 list_status:
     ld a,0xff
     ret
-column: db 0
-key_pending: db 0
-key_ready: db 0
-key_row: db 0
-key_mask: db 0
-key_escape: db 0

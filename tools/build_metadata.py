@@ -44,7 +44,8 @@ def generate(root):
     kernel += db('kernel_tpa_text', TPA_TEXT.ljust(78).encode('ascii') + b'\0')
     for index, row in enumerate(range(13, 17)):
         kernel += db(f'drive_row_{index}', ready.lines[row][1:79].encode('ascii') + b'\0')
-    kernel += db('implementation_text', f'P2000M SD System {version}\r\n'.encode('ascii') + b'\0')
+    (out / 'implementation.inc').write_text(db('implementation_text',
+        f'P2000M SD System {version}\r\n'.encode('ascii') + b'\0'))
     (out / 'kernel_screen.inc').write_text(kernel)
     return {'version': version, 'built_utc': instant.strftime('%Y-%m-%dT%H:%M:%SZ'),
             'display_timestamp': timestamp, 'drives': list(DRIVE_LABELS), 'memory': LAYOUT}

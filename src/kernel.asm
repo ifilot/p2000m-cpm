@@ -14,9 +14,10 @@
 ;
 ; Original SD-loaded CP/M-compatible kernel, CP/M 2.2 API.
 include 'platform.inc'
+include 'rom_exports.inc'
 org kernel_load
 jp start
-db 'P2MCPM02'
+db 'P2MCPM03'
 
 ; ============================================================================
 ; KERNEL ENTRY AND LINK ORDER
@@ -48,12 +49,19 @@ kernel_rom_check:
     djnz kernel_rom_check
     jp cold_boot
 kernel_rom_mismatch:
-    ld c,12
-    call console_output
     ld hl,rom_mismatch_text
-    call ccp_puts
+    ld de,0xf5a1
+mismatch_print:
+    ld a,(hl)
+    or a
+    jr z,mismatch_print_done
+    ld (de),a
+    inc hl
+    inc de
+    jr mismatch_print
+mismatch_print_done:
     jp kernel_stop
-ui_signature: db 'P2MUI02',0
+ui_signature: db 'P2MUI03',0
 include 'link_id.inc'
 rom_mismatch_text: db 'BOOT STOPPED: update port-1 ROM to match this SD kernel.',0
 
@@ -88,6 +96,8 @@ kernel_stop:
 error_banner: db 'BIOS ERROR: invalid partition layout or SD read failure',0
 ; Bootstrap below the TPA limit is disposable after cold boot. All warm-boot
 ; paths, code and persistent state live at/above resident_base.
+include 'cold_boot.asm'
+cold_code_end:
 defs resident_base-$,0
 include 'bdos.asm'
 include 'ccp.asm'

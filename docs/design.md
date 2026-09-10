@@ -22,14 +22,17 @@ CTC channels 0–3 are disabled with control 03h at cartridge entry so programs
 such as DDT can enable interrupts without reviving monitor keyboard interrupts.
 A 16 KiB ROM is mapped at stock addresses 1000–4FFF. Unused space is padded
 with 00h; the header length is 3FFBh and the checksum covers offsets 5–3FFFh.
-The loader remains at file offset 1000h (stock 2000h, mapped E000h).
+The runtime ROM remains at file offset 1000h (stock 2000h, mapped E000h).
+The boot-only loader is stored at file offset 2000h (stock 3000h). Before the
+switch it is copied to stock D000h, which becomes co-board RAM 7000h.
+The E000 entry jumps to that disposable loader. It is never needed by warm boot.
 Startup duplicates a small
 switch routine at stock RAM 9000 and F000. The OUT (20h),80h at 9002 enables
 co-board decoding. The next instruction at mapped 9004 comes from stock F004
 and jumps to E000, the cartridge slice still visible after switching.
 
-The stock ROM prints to video at 5000h before the switch. The resident loader
-continues at F000h without clearing those lines, showing SD initialization,
+The stock ROM prints to video at 5000h before the switch. The temporary RAM loader
+continues writing to video at F000h without clearing those lines, showing SD initialization,
 header validation, completed kernel sectors, verification and kernel entry.
 Its status cursor uses scratch DBD0h–DBD1h. ROM errors replace the activity row
 (18, zero-based), with command/response details on row 19. The dashboard has
@@ -67,15 +70,17 @@ Polling loops are bounded. The additive checksum detects accidental corruption;
 it is not an authentication mechanism. SD data CRC is disabled in SPI mode.
 
 The exact runtime map is documented in [memory-budget.md](memory-budget.md)
-and defined by `src/memory.inc`. The TPA is 0100–C3FF (48.75 KiB).
-The packed RAM system starts at C400; the filesystem engine occupies always-
+and defined by `src/memory.inc`. The TPA is 0100–CCFF (51 KiB).
+The packed RAM system starts at CD00; the filesystem engine occupies always-
 mapped ROM E800–EFBC. Buffers and all ROM/BDOS scratch remain outside the TPA.
 The 14 KiB load image stops at D800 so it never overwrites active ROM state.
 Cold boot initializes runtime buffers separately, preserving the ROM scratch.
-The old A000 bootstrap can subsequently be overwritten by applications.
+Both the 7000 loader and A000 cold bootstrap can subsequently be overwritten
+by applications. BIOS BOOT flushes and returns through the stock monitor to
+recreate them; WBOOT stays resident and preserves the RAM drive.
 
 Applications enter at 0100. Location 0000 jumps to BIOS warm boot; location
-0005 jumps directly to the BDOS entry at C400. BDOS uses a private stack and returns results
+0005 jumps directly to the BDOS entry at CD00. BDOS uses a private stack and returns results
 in HL and A/B. The command processor stays resident above the reported TPA
 limit, so warm boot need not reload it or overwrite the RAM drive. Warm boot
 restores the command processor's drive from page zero. SD writes are buffered;
@@ -90,8 +95,8 @@ starts are explicit MBR LBA fields; CHS fields are placeholders.
 | Region | Start LBA | Sectors | Type / contents |
 | --- | ---: | ---: | --- |
 | MBR | 0 | 1 | Two primary partition entries |
-| System header | 15 | 1 | `P2MSYS02`, little-endian size and checksum |
-| Kernel | 16 | 28 | 14 KiB load image; `P2MCPM02` signature at offset 3 |
+| System header | 15 | 1 | `P2MSYS03`, little-endian size and checksum |
+| Kernel | 16 | 28 | 14 KiB load image; `P2MCPM03` signature at offset 3 |
 | FAT32 | 2048 | 131072 | Type 0Ch, exactly 64 MiB |
 | CP/M container A:–K: | 133120 | 180224 | Type 52h, eleven fixed 8 MiB slices |
 
@@ -241,5 +246,5 @@ against a known 128-byte input file. Source provenance and hashes are recorded
 in [the collection README](../assets/cpm_core/README.md).
 Monitor ROM and emulator CPU/device code remain in the referenced checkout.
 The preceding 16 KiB cartridge build was reported to boot on real hardware.
-The 0.2.0 ROM/RAM relocation and diagnostics are emulator-tested and await a hardware
+The 0.3.0 ROM/RAM relocation and diagnostics are emulator-tested and await a hardware
 trial; physical SD timings and full hardware storage tests remain unverified.

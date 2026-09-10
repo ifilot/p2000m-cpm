@@ -71,9 +71,16 @@ int main(int argc, char **argv) {
         require(earlyMessage && entrySteps<2000,"Cartridge did not print promptly after entry");
         require(m.programCounter()==0xa000,"Loader did not enter kernel");
         require(m.coBoardMapped(), "Cartridge did not activate co-board");
+        {
+            std::ifstream rom(build+"/cartridge.bin",std::ios::binary);
+            rom.seekg(0x2000);
+            for(unsigned address=p2m_layout::boot_loader_base;address<p2m_layout::boot_loader_end;++address)
+                require(m.peekMemory(address)==static_cast<unsigned char>(rom.get()),
+                        "Copied RAM loader differs from cartridge source");
+        }
         const auto bootScreen = screen(m);
         for (const auto *stage : {"P2000M SD SYSTEM", "CP/M 2.2 compatible",
-                                 "RAM enabled  /  ROM loader E000",
+                                 "RAM enabled  /  RAM loader 7000",
                                  "SPI mode  /  attempt 1/8", "MID 01  /  OEM PM",
                                  "STARTING KERNEL  /  entry A000"})
             require(bootScreen.find(stage) != std::string::npos,
@@ -89,7 +96,7 @@ int main(int argc, char **argv) {
                 screen(m).find("L: SCRATCH (RAM) 128KiB") != std::string::npos,
                 "Missing named volume grid: " + screen(m));
         require(screen(m).substr(20*80+1,2)=="A>","Prompt not on line 21");
-        require(screen(m).substr(3*80,80).find("48.75 KiB (49920 bytes)")!=std::string::npos,
+        require(screen(m).substr(3*80,80).find("51.00 KiB (52224 bytes)")!=std::string::npos,
                 "Missing TPA capacity");
         for(unsigned row : {5u,6u,7u,9u,11u})
             require(screen(m).substr(row*80+65,12)=="          OK","Stale status suffix");
@@ -122,6 +129,33 @@ int main(int argc, char **argv) {
             require(screen(mismatch).find("A>")==std::string::npos,"Mismatched pair reached command prompt");
         }
         // On a read-only card, reads succeed and writes propagate rejection.
+        // Corrupt only the first in-memory header/payload: each full-load retry
+        // must repair the data without losing the disposable loader itself.
+        for(unsigned faultPC : {p2m_layout::header_check,p2m_layout::kernel_checksum}) {
+            P2000Machine retry;launch(retry,emu,build);
+            require(retry.sdCartridge().insert(build+"/p2000m-sd-template.img",true,&error),error);
+            unsigned count=0;
+            while(retry.programCounter()!=faultPC && ++count<10000000)retry.stepInstruction();
+            require(count<10000000,"Boot fault injection point not reached");
+            unsigned address=faultPC==p2m_layout::header_check?0x9600:0xa000;
+            retry.pokeMemory(address,retry.peekMemory(address)^0x80);
+            frames(retry,700);
+            require(screen(retry).find("BOOT COMPLETE")!=std::string::npos,"Boot content retry failed");
+            require(retry.peekMemory(p2m_layout::rom_workspace+0x14)==2,"Full-load retry budget mismatch");
+        }
+        {
+            P2000Machine late;launch(late,emu,build);
+            unsigned calls=0,count=0;
+            while(calls<2 && ++count<20000000) {
+                if(late.programCounter()==p2m_layout::boot_sd_retry && ++calls==2)break;
+                late.stepInstruction();
+            }
+            require(calls==2,"Absent card did not reach second initialization attempt");
+            require(late.sdCartridge().insert(build+"/p2000m-sd-template.img",true,&error),error);
+            frames(late,700);
+            require(screen(late).find("BOOT COMPLETE")!=std::string::npos,"Delayed card did not recover");
+            require(screen(late).find("attempt 2/8")!=std::string::npos,"Delayed-card attempt count wrong");
+        }
         {
             P2000Machine protectedCard;
             launch(protectedCard,emu,build);
@@ -160,6 +194,33 @@ int main(int argc, char **argv) {
         require(invoke(m,14)==1,"Out-of-range SD track accepted");
         invoke(m,9,12);
         require(m.peekMemory(0x9e22)==0 && m.peekMemory(0x9e23)==0,"Invalid drive accepted");
+        // Destroy both disposable boot regions, then invoke public BIOS BOOT.
+        // It must switch back to the monitor, reload the loader/kernel, and
+        // perform a genuine cold initialization (unlike WBOOT tested above).
+        for(unsigned address=0x100;address<p2m_layout::tpa_limit;++address)m.pokeMemory(address,0xa5);
+        m.pokeMemory(0x66,0xc3);
+        m.pokeMemory(0x67,0);m.pokeMemory(0x68,0x80);
+        m.pokeMemory(0x8000,0xc3);m.pokeMemory(0x8001,0);m.pokeMemory(0x8002,0x80);
+        // runFrame dispatches the emulator's requested NMI; stepInstruction
+        // alone does not. Stop in a spin loop before observing the switch.
+        m.requestNmi();frames(m,1);
+        m.pokeMemory(0x8001,p2m_layout::bios&255);
+        m.pokeMemory(0x8002,p2m_layout::bios>>8);
+        bool stockMap=false;
+        for(unsigned count=0;count<100000 && !stockMap;++count) {
+            m.stepInstruction();stockMap=!m.coBoardMapped();
+        }
+        require(stockMap,"Cold restart did not restore monitor mapping; PC="+
+                std::to_string(m.programCounter())+" cache fault="+std::to_string(m.peekMemory(0xdca4))+
+                " screen="+screen(m));
+        frames(m,700);
+        require(m.coBoardMapped() && screen(m).find("BOOT COMPLETE")!=std::string::npos,
+                "Cold restart failed after TPA overwrite");
+        require(m.peekMemory(0xa000)==0xc3,"Cold restart did not reload kernel");
+        select_record(m,11,512);
+        require(invoke(m,13)==0,"Cold-restarted RAM disk unavailable");
+        for(unsigned i=0;i<128;++i)require(m.peekMemory(0x8100+i)==0xe5,"Cold restart did not format SRAM");
+        std::cout << "PASS: RAM-loader copy, delayed card, header/checksum retry, cold restart after TPA overwrite\n";
         P2000Machine writable;
         launch(writable,emu,build);
         require(writable.sdCartridge().insert(argv[3],false,&error),error);

@@ -7,9 +7,14 @@ import json
 
 from memory_layout import LAYOUT
 
-KERNEL_API = ('return_zero', 'return_ff', 'return_a', 'disk_error', 'disk_select',
-              'disk_sector', 'disk_track', 'disk_dma', 'disk_read', 'disk_write',
-              'cache_flush', 'cache_invalidate')
+KERNEL_API = ('return_zero', 'return_ff', 'return_a', 'selected', 'dph_a',
+              'track', 'record', 'dma', 'writing', 'cursor', 'column',
+              'key_pending', 'key_ready', 'key_row', 'key_mask', 'key_escape',
+              'warm_boot', 'bdos_input', 'bdos_output', 'bdos_reader',
+              'bdos_direct', 'bdos_iobyte', 'bdos_setio', 'bdos_string', 'bdos_line',
+              'bdos_status', 'bdos_version', 'bdos_reset', 'bdos_select', 'bdos_login',
+              'bdos_current', 'bdos_dma', 'bdos_alloc', 'bdos_protect', 'bdos_ro',
+              'bdos_dpb', 'bdos_user', 'bdos_reset_drives')
 
 
 def assemble(source, output, root, generated):
@@ -29,39 +34,37 @@ def exports(path, names, symbols):
 def link_core(root, output):
     generated = output / 'generated'
     (generated / 'link_id.inc').write_text('    db ' + ','.join(['0'] * 16) + '\n')
-    # Absolute CALL/JP addresses cannot affect instruction lengths. Relative
-    # jumps must stay within the filesystem module (the real link verifies it).
+    # Probe the complete cartridge: all cross-module references are absolute.
     exports(generated / 'kernel_exports.inc', KERNEL_API, dict.fromkeys(KERNEL_API, 0))
-    probe = generated / 'filesystem_probe.asm'
-    probe.write_text("include 'platform.inc'\ninclude 'bdos_workspace.inc'\n"
-                     "include 'kernel_exports.inc'\norg rom_filesystem_base\ninclude 'filesystem.asm'\n")
-    fs_symbols = assemble(probe, generated / 'filesystem_probe.bin', root, generated)
-    fs_names = re.findall(r'^(\w+):', (root / 'src/filesystem.asm').read_text(), re.M)
-    exports(generated / 'filesystem_exports.inc', fs_names, fs_symbols)
+    probe = assemble(root / 'src/cartridge.asm', generated / 'rom_probe.bin', root, generated)
+    names = []
+    for source in ('filesystem.asm', 'cache.asm', 'console.asm', 'rom_tables.asm', 'disk_io.asm'):
+        names += re.findall(r'^(\w+):', (root / 'src' / source).read_text(), re.M)
+    names += ['rom_restart']
+    exports(generated / 'rom_exports.inc', names, probe)
     kernel = assemble(root / 'src/kernel.asm', output / 'kernel.bin', root, generated)
     assert kernel['bdos_entry'] == LAYOUT['tpa_limit']
+    assert kernel['cold_code_end'] <= LAYOUT['resident_base']
     assert kernel['resident_code_end'] <= LAYOUT['resident_code_limit']
     exports(generated / 'kernel_exports.inc', KERNEL_API, kernel)
     contract = {'ram': {key: kernel[key] for key in KERNEL_API},
-                'rom': {key: fs_symbols[key] for key in fs_names}, 'memory': LAYOUT}
+                'rom': {key: probe[key] for key in names}, 'memory': LAYOUT}
     fingerprint = hashlib.sha256(json.dumps(contract, sort_keys=True).encode()).digest()[:16]
     (generated / 'link_id.inc').write_text('    db ' + ','.join(str(x) for x in fingerprint) + '\n')
     (generated / 'link-id.txt').write_text(fingerprint.hex() + '\n')
     final_kernel = assemble(root / 'src/kernel.asm', output / 'kernel.bin', root, generated)
     assert all(final_kernel[key] == kernel[key] for key in kernel), 'Fingerprint changed RAM layout'
     rom = assemble(root / 'src/cartridge.asm', output / 'cartridge.bin', root, generated)
-    assert all(rom[name] == fs_symbols[name] for name in fs_names), 'ROM filesystem link changed layout'
-    assert rom['rom_driver_end'] <= LAYOUT['rom_filesystem_base']
+    assert all(rom[name] == probe[name] for name in names), 'ROM link changed layout'
+    assert rom['rom_runtime_end'] <= LAYOUT['rom_filesystem_base']
     assert rom['rom_filesystem_end'] <= LAYOUT['rom_end']
-    # Compare a second actual-filesystem build against the bytes embedded in ROM.
-    assemble(probe, generated / 'filesystem_linked.bin', root, generated)
-    fs_bytes = (generated / 'filesystem_linked.bin').read_bytes()
+    assert rom['boot_loader_end'] <= 0x8000, 'Loader exceeds stock D000-DFFF copy window'
     cartridge = (output / 'cartridge.bin').read_bytes()
-    offset = 0x1000 + LAYOUT['rom_filesystem_base'] - 0xe000
-    assert cartridge[offset:offset + len(fs_bytes)] == fs_bytes
+    assert len(cartridge) == 0x2000 + rom['boot_loader_end'] - LAYOUT['boot_loader_base']
     assert cartridge[0x101a:0x102a] == fingerprint
     kernel_bytes = (output / 'kernel.bin').read_bytes()
     kernel_tag = kernel['ui_signature'] - LAYOUT['kernel_load'] + 8
     assert kernel_bytes[kernel_tag:kernel_tag + 16] == fingerprint
-    return {**LAYOUT, **{key: kernel[key] for key in ('bios', 'bdos_entry', 'resident_code_end')},
-            'rom_driver_end': rom['rom_driver_end'], 'rom_filesystem_end': rom['rom_filesystem_end']}
+    return {**LAYOUT, **{key: kernel[key] for key in ('bios', 'bdos_entry', 'resident_code_end', 'cold_code_end')},
+            **{key: rom[key] for key in ('rom_driver_end', 'rom_runtime_end', 'rom_filesystem_end', 'boot_loader_end',
+                                        'header_check', 'kernel_checksum', 'boot_sd_retry')}}

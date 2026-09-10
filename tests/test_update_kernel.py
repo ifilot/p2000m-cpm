@@ -16,14 +16,14 @@ class UpgradeTests(unittest.TestCase):
             source, dest, kernel = (root / name for name in ('old.img', 'new.img', 'kernel.bin'))
             sd.create_image(source)
             payload = bytearray(sd.LAYOUT['kernel_bytes'])
-            payload[3:11] = b'P2MCPM02'
+            payload[3:11] = b'P2MCPM03'
             kernel.write_bytes(payload)
             upgrade(source, dest, kernel)
             end = (16 + sd.LAYOUT['kernel_sectors']) * 512
             with source.open('rb') as old, dest.open('rb') as new:
                 self.assertEqual(old.read(15 * 512), new.read(15 * 512))
-                self.assertEqual(new.read(8), b'P2MSYS02')
-                self.assertNotEqual(old.read(8), b'P2MSYS02')
+                self.assertEqual(new.read(8), b'P2MSYS03')
+                self.assertNotEqual(old.read(8), b'P2MSYS03')
                 old.seek(end)
                 new.seek(end)
                 while chunk := old.read(1024 * 1024):

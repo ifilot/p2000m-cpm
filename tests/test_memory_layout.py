@@ -14,7 +14,7 @@ from memory_layout import LAYOUT, TPA_BYTES, TPA_TEXT
 
 class MemoryLayoutTests(unittest.TestCase):
     def test_memory_regions(self):
-        self.assertEqual(TPA_BYTES, 49920)
+        self.assertEqual(TPA_BYTES, 52224)
         self.assertEqual(LAYOUT['tpa_limit'] & 255, 0)
         self.assertEqual(LAYOUT['kernel_end'], LAYOUT['sector_buffer'])
         self.assertGreaterEqual(LAYOUT['rom_workspace'], LAYOUT['kernel_end'])
@@ -24,7 +24,7 @@ class MemoryLayoutTests(unittest.TestCase):
         self.assertEqual(LAYOUT['resident_code_limit'], LAYOUT['bdos_stack_bottom'])
         self.assertEqual(LAYOUT['bdos_stack_top'], LAYOUT['system_stack_bottom'])
         self.assertEqual(LAYOUT['system_stack_top'], LAYOUT['kernel_end'])
-        self.assertIn('48.75 KiB (49920 bytes)', TPA_TEXT)
+        self.assertIn('51.00 KiB (52224 bytes)', TPA_TEXT)
 
     def test_link_from_clean_directory_is_reproducible(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -41,5 +41,5 @@ class MemoryLayoutTests(unittest.TestCase):
                 results.append(tuple((root / 'build' / name).read_bytes()
                                      for name in ('cartridge.bin', 'kernel.bin')))
             self.assertEqual(results[0], results[1])
-            self.assertEqual(len(results[0][0]), 8192)  # padded to 16 KiB by build.py
+            self.assertEqual(len(results[0][0]), 8192 + exported['boot_loader_end'] - LAYOUT['boot_loader_base'])
             self.assertEqual(len(results[0][1]), LAYOUT['kernel_bytes'])
