@@ -1,4 +1,5 @@
 #include "p2000_machine.h"
+#include "memory_layout.h"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -6,10 +7,19 @@
 static void frames(P2000Machine &m,int n) { while(n--) m.runFrame(); }
 static std::string screen(P2000Machine &m) {return std::string((const char*)m.characters(),1920);}
 static void require(bool b,const std::string &s) {if(!b) throw std::runtime_error(s);}
+static void stack_guards(P2000Machine &m,bool initialize) {
+    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom})
+        for(unsigned i=0;i<16;++i) {
+            if(initialize)m.pokeMemory(base+i,0xa5);
+            else require(m.peekMemory(base+i)==0xa5,"Resident stack exceeded its guarded budget");
+        }
+}
 static void type(P2000Machine &m,const std::string &s) {
     const std::string matrix =
         " 6 Q3574" " HZSDGJF" "   0# , " " N<XCBMV" " YAWETUR" " 9*/ 01-" "9O87 P8@" "3.21]/K2" "6L54=;I:";
     for(char c:s) {
+        const bool shifted=c>='A' && c<='Z';
+        if(c>='a' && c<='z') c-=32;
         unsigned pos=0;
         if(c=='\n') pos=6*8+4;
         else if(c==' ') pos=2*8+1;
@@ -18,8 +28,10 @@ static void type(P2000Machine &m,const std::string &s) {
             pos=matrix.find(c);
             require(pos<matrix.size(),"Unknown keyboard character");
         }
+        m.setKey(9,0,shifted);frames(m,2);
         m.setKey(pos/8,pos%8,true);frames(m,2);
         m.setKey(pos/8,pos%8,false);frames(m,2);
+        m.setKey(9,0,false);frames(m,2);
     }
 }
 static void prompt(P2000Machine &m) {
@@ -47,6 +59,41 @@ static unsigned bdos(P2000Machine &m,unsigned fn,unsigned arg=0) {
     for(int i=0;i<2000 && m.peekMemory(0x9e41)!=0x5a;++i)frames(m,10);
     require(m.peekMemory(0x9e41)==0x5a,"BDOS call timed out");
     return m.peekMemory(0x9e40);
+}
+static void keyboard_tests(P2000Machine &m) {
+    // Halt the CCP before injecting keys; read the actual bytes via BDOS 6.
+    bdos(m,6,0xff);
+    const std::string letters =
+        "   q    " " hzsdgjf" "        " " n xcbmv" " yawetur"
+        "        " " o   p  " "      k " " l    i ";
+    auto key = [&](unsigned row,unsigned bit,int shift,unsigned expected) {
+        if(shift>=0)m.setKey(9,shift,true);
+        m.setKey(row,bit,true);
+        require(bdos(m,6,0xff)==expected,"Keyboard mapping mismatch");
+        require(bdos(m,6,0xff)==0,"Held key emitted a duplicate");
+        m.setKey(row,bit,false);
+        if(shift>=0)m.setKey(9,shift,false);
+        require(bdos(m,6,0xff)==0,"Key release emitted a character");
+    };
+    for(unsigned pos=0;pos<letters.size();++pos) {
+        if(letters[pos]==' ')continue;
+        key(pos/8,pos%8,-1,letters[pos]);
+        key(pos/8,pos%8,0,letters[pos]-32);
+        key(pos/8,pos%8,7,letters[pos]-32);
+    }
+    for(int shift : {-1,0,7}) {
+        key(0,1,shift,shift<0?'6':'&');
+        key(2,6,shift,shift<0?',':'<');
+        key(7,5,shift,shift<0?'/':'?');
+        key(2,1,shift,' ');
+        key(2,0,shift,13);
+        key(0,0,shift,8);
+        key(4,0,-1,0); // Escape arms the control prefix.
+        key(4,2,shift,1); // Escape+A is Ctrl-A in either case.
+    }
+    key(4,0,-1,0);
+    key(4,0,-1,27);
+    std::cout << "PASS: lowercase, both Shift keys, punctuation, controls and release" << std::endl;
 }
 static void fcb(P2000Machine &m,const std::string &name,unsigned drive=12) {
     for(unsigned i=0;i<36;++i)m.pokeMemory(0x8200+i,0);
@@ -162,19 +209,19 @@ static void contract_call(P2000Machine &m,unsigned target,unsigned bc) {
 }
 static void contract_tests(P2000Machine &m) {
     // SETTRK, SETSEC and SETDMA promise to preserve every register and flag.
-    for(unsigned target:{0xc01eu,0xc021u,0xc024u}) {
+    for(unsigned target:{(p2m_layout::bios+0x1e),(p2m_layout::bios+0x21),(p2m_layout::bios+0x24)}) {
         contract_call(m,target,0x1234);
         require(word(m,0x8500)==0x1234 && word(m,0x8504)==0x789a &&
                 word(m,0x850c)==0xa545,"BIOS setter contract");
     }
-    contract_call(m,0xc030,0x1234); // SECTRAN: HL=BC
+    contract_call(m,p2m_layout::bios+0x30,0x1234); // SECTRAN: HL=BC
     require(word(m,0x8504)==0x1234 && word(m,0x8500)==0x1234 &&
             word(m,0x850c)==0xa545,"SECTRAN contract");
-    contract_call(m,0xc00c,'X'); // CONOUT preserves all registers including flags
+    contract_call(m,p2m_layout::bios+0x0c,'X'); // CONOUT preserves all registers including flags
     require(word(m,0x8500)=='X' && word(m,0x8504)==0x789a &&
             word(m,0x850c)==0xa545,"CONOUT contract");
     require(screen(m).find("A>X")!=std::string::npos,"CONOUT character");
-    contract_call(m,0xc006,0x1234); // CONST without a pressed key
+    contract_call(m,p2m_layout::bios+0x06,0x1234); // CONST without a pressed key
     require(word(m,0x8500)==0x1234 && word(m,0x8504)==0x789a &&
             (word(m,0x850c)>>8)==0,"CONST contract");
     contract_call(m,5,0x120c); // BDOS version, C=12
@@ -298,8 +345,9 @@ int main(int argc,char **argv) {
         require(m.sdCartridge().insert(argv[3],false,&error),error);
         frames(m,700);
         require(screen(m).find("A>")!=std::string::npos,"Missing command prompt");
-        if(argc==5) {program_test(m,argv[4]);return 0;}
-        type(m,"HELLO\n");frames(m,150);
+        stack_guards(m,true);
+        if(argc==5) {program_test(m,argv[4]);stack_guards(m,false);return 0;}
+        type(m,"hello\n");frames(m,150); // Unshifted commands remain case-insensitive.
         require(screen(m).find("Hello from an original Z80")!=std::string::npos,"HELLO did not execute");
         m.pokeMemory(0x9000,0);
         type(m,"CPMTEST\n");
@@ -350,6 +398,8 @@ int main(int argc,char **argv) {
         require(screen(m).find("Error: command, file or disk operation failed")!=std::string::npos,
                 "Oversized COM was not rejected");
         edge_tests(m);
+        keyboard_tests(m);
+        stack_guards(m,false);
         std::cout << "PASS: PIP, STAT, ASM/LOAD toolchain, DUMP, DDT and ED run on the original BDOS" << std::endl;
         std::cout << "PASS: CCP loads COM, BDOS sequential/random files span extents and both RAM banks on L:, close/reopen/size/delete" << std::endl;
     } catch(const std::exception &e) {

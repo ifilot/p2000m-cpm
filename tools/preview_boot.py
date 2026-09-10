@@ -6,6 +6,7 @@ image is changed. Text and attribute dumps accompany each PNG for inspection.
 """
 import argparse
 from pathlib import Path
+from memory_layout import TPA_TEXT, KERNEL_RANGE, LAYOUT
 
 ROOT = Path(__file__).resolve().parents[1]
 COLS, ROWS = 80, 24
@@ -50,13 +51,13 @@ def design(state):
     s.put(1, '  ROM     v0.3.1     Built 2026-09-08 18:05 UTC')
     s.put(2, '  Kernel  v0.4.0     Built 2026-09-10 14:32 UTC' if ready else
           '  Kernel  not loaded' if failed else '  Kernel  version/build pending verification')
-    s.put(3, '  TPA     37.75 KiB (38656 bytes)  /  0100-97FF' if ready else
+    s.put(3, TPA_TEXT if ready else
           '  TPA     pending kernel verification')
     s.border(4)
     s.item(5, 'Cartridge', '16 KiB ROM   1000-4FFF', 'OK')
     s.item(6, 'Co-board', 'RAM enabled  /  ROM loader E000', 'OK')
-    s.item(7, 'Kernel', 'A000-DFFF  /  signature + checksum' if ready else
-           'A000-DFFF  /  SD sectors 16-47', 'OK' if ready else
+    s.item(7, 'Kernel', f'{KERNEL_RANGE}  /  signature + checksum' if ready else
+           f'{KERNEL_RANGE}  /  SD sectors 16-{15 + LAYOUT["kernel_sectors"]}', 'OK' if ready else
            ('NOT LOADED' if failed else 'LOADING'))
     s.bar(8, 'SD CARD')
     # Firmware currently reads CID in the kernel, after the loader has finished.
@@ -110,7 +111,7 @@ def design(state):
         s.put(bottom + 2, '  Last command: CMD0 (00)   Response: 3F   Attempts: 8/8')
         s.put(bottom + 4, '  Check the card and cartridge connections, then reset the machine.')
     else:
-        s.put(bottom + 1, '  LOADING KERNEL   (########--------)  16/32 sectors')
+        s.put(bottom + 1, f'  LOADING KERNEL   (########--------)  {LAYOUT["kernel_sectors"] // 2}/{LAYOUT["kernel_sectors"]} sectors')
         s.put(bottom + 2, '  Next: checksum, card identification, partitions, RAM disk')
     return s
 

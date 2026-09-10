@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 
 from preview_boot import design, DRIVE_LABELS
+from memory_layout import LAYOUT, TPA_TEXT, KERNEL_RANGE
 
 
 def db(label, data):
@@ -24,7 +25,7 @@ def generate(root):
     screen.put(2, '  Kernel  version/build pending verification'.ljust(78))
     screen.put(3, '  TPA     pending kernel verification'.ljust(78))
     screen.item(6, 'Co-board', 'RAM switch 9000 / F000', 'SWITCHING')
-    screen.item(7, 'Kernel', 'A000-DFFF  /  SD sectors 16-47', 'WAIT')
+    screen.item(7, 'Kernel', f'{KERNEL_RANGE}  /  SD sectors 16-{15 + LAYOUT["kernel_sectors"]}', 'WAIT')
     screen.item(9, 'Manufacturer', 'MID --  /  OEM --', 'PENDING')
     screen.item(10, 'Identity', 'Product -----  /  Serial --------', '')
     screen.item(11, 'Startup', 'SPI mode  /  attempt 1/8', 'STARTING')
@@ -40,10 +41,10 @@ def generate(root):
         db('stock_banner', screen.lines[0].encode('ascii') + b'\0'))
     ready = design('grid3')
     kernel = db('kernel_build_text', metadata['Kernel'].ljust(78).encode('ascii') + b'\0')
-    kernel += db('kernel_tpa_text', ready.lines[3][1:79].encode('ascii') + b'\0')
+    kernel += db('kernel_tpa_text', TPA_TEXT.ljust(78).encode('ascii') + b'\0')
     for index, row in enumerate(range(13, 17)):
         kernel += db(f'drive_row_{index}', ready.lines[row][1:79].encode('ascii') + b'\0')
     kernel += db('implementation_text', f'P2000M SD System {version}\r\n'.encode('ascii') + b'\0')
     (out / 'kernel_screen.inc').write_text(kernel)
     return {'version': version, 'built_utc': instant.strftime('%Y-%m-%dT%H:%M:%SZ'),
-            'display_timestamp': timestamp, 'drives': list(DRIVE_LABELS)}
+            'display_timestamp': timestamp, 'drives': list(DRIVE_LABELS), 'memory': LAYOUT}

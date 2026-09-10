@@ -1,4 +1,5 @@
 #include "p2000_machine.h"
+#include "memory_layout.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -27,8 +28,8 @@ static unsigned invoke(P2000Machine &m, int entry, unsigned bc = 0) {
     // A test-only NMI trampoline calls the real BIOS without CPU service hooks.
     const unsigned char code[] = {
         0x31,0,0x9c, 0x01,static_cast<unsigned char>(bc),static_cast<unsigned char>(bc >> 8),
-        0xcd,static_cast<unsigned char>(0xc000 + entry * 3),
-        static_cast<unsigned char>((0xc000 + entry * 3) >> 8),
+        0xcd,static_cast<unsigned char>(p2m_layout::bios + entry * 3),
+        static_cast<unsigned char>((p2m_layout::bios + entry * 3) >> 8),
         0x32,0x20,0x9e, 0x22,0x22,0x9e, 0x3e,0x5a,0x32,0x21,0x9e,0x76
     };
     m.pokeMemory(0x66,0xc3); m.pokeMemory(0x67,0); m.pokeMemory(0x68,0x80);
@@ -88,7 +89,7 @@ int main(int argc, char **argv) {
                 screen(m).find("L: SCRATCH (RAM) 128KiB") != std::string::npos,
                 "Missing named volume grid: " + screen(m));
         require(screen(m).substr(20*80+1,2)=="A>","Prompt not on line 21");
-        require(screen(m).substr(3*80,80).find("37.75 KiB (38656 bytes)")!=std::string::npos,
+        require(screen(m).substr(3*80,80).find("48.75 KiB (49920 bytes)")!=std::string::npos,
                 "Missing TPA capacity");
         for(unsigned row : {5u,6u,7u,9u,11u})
             require(screen(m).substr(row*80+65,12)=="          OK","Stale status suffix");
@@ -102,6 +103,24 @@ int main(int argc, char **argv) {
         }
         for (int drive = 0; drive < 4; ++drive)
             require(!m.hasDisk(drive), "Unexpected floppy media");
+        // Valid cartridge checksum, wrong cross-link fingerprint: must stop
+        // before the kernel can use incompatible ROM filesystem callbacks.
+        {
+            std::ifstream source(build+"/cartridge.bin",std::ios::binary);
+            std::vector<unsigned char> rom((std::istreambuf_iterator<char>(source)),{});
+            rom[0x101a]^=0x80;
+            unsigned sum=0;for(unsigned i=5;i<rom.size();++i)sum+=rom[i];
+            unsigned checksum=(-sum)&0xffff;
+            rom[3]=checksum&255;rom[4]=checksum>>8;
+            auto path=std::string(argv[3])+".mismatched-rom.bin";
+            std::ofstream out(path,std::ios::binary);out.write((const char*)rom.data(),rom.size());out.close();
+            P2000Machine mismatch;launch(mismatch,emu,build);
+            require(mismatch.loadCartridge(path,&error),error);
+            require(mismatch.sdCartridge().insert(build+"/p2000m-sd-template.img",true,&error),error);
+            frames(mismatch,700);
+            require(screen(mismatch).find("update port-1 ROM")!=std::string::npos,"ROM/kernel mismatch was accepted");
+            require(screen(mismatch).find("A>")==std::string::npos,"Mismatched pair reached command prompt");
+        }
         // On a read-only card, reads succeed and writes propagate rejection.
         {
             P2000Machine protectedCard;
@@ -125,7 +144,7 @@ int main(int argc, char **argv) {
                 require(m.peekMemory(0x8100+i)==static_cast<unsigned char>((rec/512)^rec^i),
                         "SRAM data or bank independence failure");
         }
-        m.pokeMemory(0x66,0xc3);m.pokeMemory(0x67,3);m.pokeMemory(0x68,0xc0);
+        m.pokeMemory(0x66,0xc3);m.pokeMemory(0x67,(p2m_layout::bios+3)&255);m.pokeMemory(0x68,(p2m_layout::bios+3)>>8);
         m.requestNmi();frames(m,100);
         for(unsigned rec : {0u,511u,512u,1023u}) {
             select_record(m,11,rec);

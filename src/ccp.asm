@@ -44,7 +44,7 @@ ccp_start:
 ; The original argument remainder is retained for the standard command tail.
 ; ----------------------------------------------------------------------------
 ccp_loop:
-    ld sp,0x9d00
+    ld sp,system_stack_top
     call cache_flush
     or a
     jp nz,warm_boot
@@ -445,7 +445,7 @@ save_number:
     or a
     jp nz,ccp_error
     ld a,l
-    cp 152
+    cp tpa_limit/256
     jp nc,ccp_error
     ex de,hl
     pop hl
@@ -496,7 +496,7 @@ save_close:
 
 ; ============================================================================
 ; TRANSIENT LOADER: FCB open, bounded COM load, page-zero arguments
-; The reported TPA is 0100h..97FFh. A final read at the limit uses a scratch
+; The reported TPA is 0100h..(tpa_limit-1). A final read at the limit uses a scratch
 ; buffer to distinguish an exactly full COM file from an oversized one.
 ; ============================================================================
 
@@ -508,7 +508,7 @@ save_close:
 ; Outputs:  No return; ccp_execute on EOF, ccp_error on open/read/size failure.
 ; Clobbers: AF, BC, DE, HL; TPA, load_address, DMA and work FCB.
 ;
-; No extension means COM. At address 9800h data goes to file_buffer
+; No extension means COM. At tpa_limit data goes to file_buffer
 ; instead of system memory; receiving another record then rejects the program.
 ; ----------------------------------------------------------------------------
 ccp_load:
@@ -530,7 +530,7 @@ ccp_load_open:
 ccp_load_record:
     ld de,(load_address)
     ld a,d
-    cp 0x98
+    cp tpa_limit/256
     jr c,ccp_load_dma
     ld de,file_buffer
 ccp_load_dma:
@@ -543,7 +543,7 @@ ccp_load_dma:
     jr nz,ccp_execute
     ld hl,(load_address)
     ld a,h
-    cp 0x98
+    cp tpa_limit/256
     jp nc,ccp_error
     ld de,128
     add hl,de
@@ -589,7 +589,7 @@ ccp_tail_done:
     ld de,0x80
     ld c,26
     call bdos_entry
-    ld sp,0x9a00
+    ld sp,transient_stack_top
     ld hl,warm_boot
     push hl
     ld a,(current_drive)

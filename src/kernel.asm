@@ -13,15 +13,15 @@
 ; See docs/source-guide.md for units, call flow and tests.
 ;
 ; Original SD-loaded CP/M-compatible kernel, CP/M 2.2 API.
-org 0xa000
 include 'platform.inc'
+org kernel_load
 jp start
-db 'P2MCPM01'
+db 'P2MCPM02'
 
 ; ============================================================================
 ; KERNEL ENTRY AND LINK ORDER
 ; ORG/DEFS boundaries are the memory layout. The include files below are
-; assembled into one 16 KiB image; no dynamic linker or emulator trap is involved.
+; assembled into one 14 KiB image, statically linked to ROM filesystem routines.
 ; ============================================================================
 
 ; ----------------------------------------------------------------------------
@@ -34,11 +34,11 @@ db 'P2MCPM01'
 ; ----------------------------------------------------------------------------
 start:
     di
-    ld sp,0x9d00
+    ld sp,system_stack_top
     ; Refuse older cartridges before invoking the new dashboard ROM services.
     ld hl,0xe012
     ld de,ui_signature
-    ld b,8
+    ld b,24
 kernel_rom_check:
     ld a,(de)
     cp (hl)
@@ -53,7 +53,8 @@ kernel_rom_mismatch:
     ld hl,rom_mismatch_text
     call ccp_puts
     jp kernel_stop
-ui_signature: db 'P2MUI01',0
+ui_signature: db 'P2MUI02',0
+include 'link_id.inc'
 rom_mismatch_text: db 'BOOT STOPPED: update port-1 ROM to match this SD kernel.',0
 
 ; ----------------------------------------------------------------------------
@@ -85,9 +86,9 @@ kernel_stop:
     halt
     jr kernel_stop
 error_banner: db 'BIOS ERROR: invalid partition layout or SD read failure',0
-include 'ccp.asm'
-defs 0xa800-$,0
+; Bootstrap below the TPA limit is disposable after cold boot. All warm-boot
+; paths, code and persistent state live at/above resident_base.
+defs resident_base-$,0
 include 'bdos.asm'
-defs 0xc000-$,0
+include 'ccp.asm'
 include 'bios.asm'
-defs 0xe000-$,0

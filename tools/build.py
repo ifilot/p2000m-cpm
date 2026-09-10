@@ -8,6 +8,8 @@ import hashlib
 import json
 from sd_image import create_image, install_kernel
 from build_metadata import generate
+from memory_layout import LAYOUT
+from link_core import link_core
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / 'build'
@@ -26,9 +28,11 @@ def main():
             parser.error(f'Missing Zork file: {path}; specify --zork-dir')
     BUILD.mkdir(exist_ok=True)
     metadata = generate(ROOT)
-    for name in ('cartridge', 'kernel'):
-        subprocess.run(['z80asm', '-I', str(ROOT / 'src'), '-I', str(BUILD / 'generated'), '-o', str(BUILD / f'{name}.bin'),
-                        str(ROOT / 'src' / f'{name}.asm')], check=True)
+    exported = link_core(ROOT, BUILD)
+    metadata['memory'] = exported
+    metadata['link_id'] = (BUILD / 'generated/link-id.txt').read_text().strip()
+    (BUILD / 'generated/memory_layout.h').write_text('#pragma once\nnamespace p2m_layout {\n' +
+        ''.join(f'constexpr unsigned {key} = 0x{value:04x};\n' for key, value in exported.items()) + '}\n')
     cartridge = bytearray((BUILD / 'cartridge.bin').read_bytes())
     if len(cartridge) > CARTRIDGE_SIZE:
         raise ValueError('Cartridge exceeds 16 KiB')
@@ -38,8 +42,8 @@ def main():
     cartridge[3:5] = (-sum(cartridge[5:]) & 0xffff).to_bytes(2, 'little')
     (BUILD / 'cartridge.bin').write_bytes(cartridge)
     kernel = (BUILD / 'kernel.bin').read_bytes()
-    if len(kernel) != 16384:
-        raise ValueError('Kernel must be exactly 16 KiB')
+    if len(kernel) != LAYOUT['kernel_bytes']:
+        raise ValueError('Kernel length differs from memory.inc')
     for program in ('hello', 'cpmtest', 'copy', 'ramtest', 'sync'):
         subprocess.run(['z80asm', '-I', str(ROOT / 'programs'), '-o', str(BUILD / (program.upper() + '.COM')),
                         str(ROOT / 'programs' / (program + '.asm'))], check=True)

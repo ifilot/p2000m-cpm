@@ -9,6 +9,7 @@ import sys
 from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 from build_metadata import generate
+from link_core import link_core
 
 ROOT = Path(__file__).resolve().parents[1]
 BASELINE = json.loads((ROOT / 'tests/fixtures/assembly_baseline.json').read_text())
@@ -21,6 +22,7 @@ class AssemblyConservation(unittest.TestCase):
             (fixture_root / 'VERSION').write_text((ROOT / 'VERSION').read_text())
             with patch.dict('os.environ', {'SOURCE_DATE_EPOCH': '0'}):
                 generate(fixture_root)
+            link_core(ROOT, fixture_root / 'build')
             for source, expected in BASELINE['artifacts'].items():
                 with self.subTest(source=source):
                     output = Path(tmp) / 'assembled.bin'

@@ -3,6 +3,8 @@ from pathlib import Path
 import struct
 import tempfile
 import unittest
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'tools'))
 
 spec = importlib.util.spec_from_file_location('sd_image', Path(__file__).parents[1] / 'tools/sd_image.py')
 sd = importlib.util.module_from_spec(spec)
@@ -10,6 +12,29 @@ spec.loader.exec_module(sd)
 
 
 class ImageTests(unittest.TestCase):
+    def test_kernel_install_preserves_everything_outside_boot_region(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / 'card.img'
+            # Patterned reserved space reveals accidental writes outside the
+            # exact new header/payload range, including the old 16 KiB tail.
+            original = bytes(range(256)) * (1024 * 1024 // 256)
+            path.write_bytes(original)
+            kernel = bytearray(sd.LAYOUT['kernel_bytes'])
+            kernel[3:11] = b'P2MCPM02'
+            sd.install_kernel(path, kernel)
+            actual = path.read_bytes()
+            end = (16 + sd.LAYOUT['kernel_sectors']) * 512
+            self.assertEqual(actual[:15*512], original[:15*512])
+            self.assertEqual(actual[end:], original[end:])
+            self.assertEqual(actual[15*512:15*512+8], b'P2MSYS02')
+            self.assertEqual(actual[16*512:end], kernel)
+            self.assertEqual(struct.unpack_from('<HH', actual, 15*512+8),
+                             (len(kernel), sum(kernel) & 0xffff))
+            before = path.read_bytes()
+            with self.assertRaises(ValueError):
+                sd.install_kernel(path, bytes(16384))
+            self.assertEqual(path.read_bytes(), before)
+
     def test_partition_and_fat_structure(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'card.img'

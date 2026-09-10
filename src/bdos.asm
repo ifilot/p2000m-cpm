@@ -12,13 +12,13 @@
 ; Labels without a Routine header are local branches or data, not public calls.
 ; See docs/source-guide.md for units, call flow and tests.
 ;
-; Original CP/M 2.2-compatible BDOS. User entry trampoline is at 9800.
+; Original CP/M 2.2-compatible BDOS. User entry is at resident_base.
 ; BDOS changes to a private stack; all disk traffic calls this project's BIOS.
 
 ; ============================================================================
 ; PUBLIC CALL 5 ENTRY: save the caller and dispatch on function number
 ; Applications call 0005h with C=function and DE=argument. The page-zero
-; jump reaches 9800h, then this code. Most implementation handlers use IX=DE.
+; jump reaches this code directly. Most implementation handlers use IX=DE.
 ; ============================================================================
 
 ; ----------------------------------------------------------------------------
@@ -30,11 +30,11 @@
 ; Clobbers: AF, B, HL; service-specific memory/media changes.
 ;
 ; Function 0 does not return: warm_boot discards this frame. Other calls
-; use stack 9B80h, independent of the transient program stack. Not reentrant.
+; use bdos_stack_top, independent of the transient program stack. Not reentrant.
 ; ----------------------------------------------------------------------------
 bdos_entry:
     ld (caller_sp),sp
-    ld sp,0x9b80
+    ld sp,bdos_stack_top
     push bc
     push de
     push ix
@@ -610,48 +610,13 @@ bdos_reset_drives:
     ld (logged+1),a
     jp return_zero
 
-; BDOS private state, kept below its resident-code region and outside the TPA.
+; BDOS private state, kept above its resident-code region and outside the TPA.
 
 ; ============================================================================
 ; BDOS/FILESYSTEM WORKSPACE: absolute addresses outside the TPA
 ; These EQU symbols reserve no bytes in the assembled stream. cold_boot
-; clears 9F00h..9FFFh. Multi-byte words are little-endian; see docs/source-guide.md.
+; clears this workspace. Multi-byte words are little-endian; see docs/source-guide.md.
 ; ============================================================================
 
-caller_sp: equ 0x9f00  ; word: application stack saved across CALL 5
-argument: equ 0x9f02  ; word: original DE supplied to BDOS
-function: equ 0x9f04  ; byte: current BDOS function number
-current_drive: equ 0x9f05  ; byte: default drive, A=0/B=1/C=2
-user_number: equ 0x9f06  ; byte: current CP/M user area 0..15
-user_dma: equ 0x9f07  ; word: application 128-byte transfer buffer
-read_only: equ 0x9f34  ; word: logical write-protection bitmask A..P
-logged: equ 0x9f36  ; word: logged-in drive bitmask A..P
-fs_drive: equ 0x9f0b  ; byte: drive selected for current FCB
-alloc_ptr: equ 0x9f0c  ; word: selected drive allocation bitmap address
-block_shift: equ 0x9f0e  ; byte: log2(records per allocation block)
-extent_mask: equ 0x9f0f  ; byte: logical extents per directory entry minus one
-max_entries: equ 0x9f10  ; word: directory entry count (not last index)
-max_blocks: equ 0x9f12  ; word: allocation block count
-scan_index: equ 0x9f14  ; word: current directory entry index
-cache_record: equ 0x9f16  ; word: cached directory record; FFFFh invalid
-entry_ptr: equ 0x9f18  ; word: entry address within directory_buffer
-wanted_extent: equ 0x9f1a  ; word: extent being searched
-rw_record: equ 0x9f1c  ; word: zero-based file record position
-rw_block: equ 0x9f1e  ; word: allocated disk block for transfer
-rw_offset: equ 0x9f20  ; word: address of allocation slot being updated
-found_index: equ 0x9f22  ; word: matched or free directory slot
-saved_index: equ 0x9f24  ; word: reserved workspace; currently unused
-search_index: equ 0x9f26  ; word: resumable SEARCH FIRST/NEXT position
-search_drive: equ 0x9f28  ; byte: saved search drive
-search_user: equ 0x9f29  ; byte: saved search user area
-search_active: equ 0x9f2a  ; byte: whether SEARCH NEXT has a context
-any_match: equ 0x9f2b  ; byte: accumulated matching-entry flag
-size_max: equ 0x9f2c  ; word: low 16 bits of maximum file record count
-size_overflow: equ 0x9f2e  ; byte: high size byte (65536 records needs 17 bits)
-zero_record: equ 0x9f30  ; word: next record to zero in a new block
-zero_count: equ 0x9f32  ; byte: remaining records to zero
-io_mode: equ 0x9f33  ; byte: 0=read, nonzero=write
-entry_copy: equ 0xdd80  ; 32-byte directory-entry staging buffer
-search_fcb: equ 0xdda0  ; 36-byte private search FCB
-file_buffer: equ 0xdd00  ; 128-byte internal DMA buffer
-include 'filesystem.asm'
+include 'bdos_workspace.inc'
+include 'filesystem_exports.inc'

@@ -60,7 +60,7 @@ def compile_harness(emulator, name):
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
     subprocess.run(['gcc', '-O2', '-c', str(cpu / 'z80.c'), '-o', str(build / 'z80.o')], check=True)
-    subprocess.run(['g++', '-O2', '-std=c++17', '-I' + str(core), '-I' + str(cpu),
+    subprocess.run(['g++', '-O2', '-std=c++17', '-I' + str(core), '-I' + str(cpu), '-I' + str(build / 'generated'),
                     '-DP2000M_SOURCE_ROM_DIR="' + str(emulator / 'assets/roms') + '"',
                     '-DP2000M_SOURCE_SOFTWARE_DIR="' + str(emulator / 'assets/software') + '"',
                     str(ROOT / 'tests' / (name + '.cpp')), str(core / 'p2000_machine.cpp'),
@@ -72,8 +72,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--emulator', type=Path,
                         default=ROOT.parent / 'p2000m-emulator')
-    parser.add_argument('--cache-baseline', type=Path,
-                        help='Optional saved pre-cache kernel for a measured sector-I/O comparison')
     args = parser.parse_args()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
@@ -99,7 +97,7 @@ def main():
                 source.write_bytes(b" ORG 100H\r\n LXI D,MSG\r\n MVI C,9\r\n CALL 5\r\n JMP 0\r\nMSG: DB 'ASM/LOAD OK',13,10,'$'\r\n END\r\n")
                 files.append(source)
                 limit = Path(tmp) / 'TPALIMIT.COM'
-                subprocess.run(['z80asm', '-o', str(limit), str(ROOT / 'tests/tpalimit.asm')], check=True)
+                subprocess.run(['z80asm', '-I', str(ROOT / 'src'), '-o', str(limit), str(ROOT / 'tests/tpalimit.asm')], check=True)
                 files.append(limit)
                 oversized = Path(tmp) / 'TOOBIG.COM'
                 oversized.write_bytes(limit.read_bytes() + bytes(128))
@@ -108,8 +106,6 @@ def main():
             install_kernel(card, (build / 'kernel.bin').read_bytes())
             original_fat = fat_digest(card)
             command = [str(build / (name + '-test')), str(args.emulator), str(build), str(card)]
-            if name == 'cache' and args.cache_baseline:
-                command.append(str(args.cache_baseline.resolve()))
             subprocess.run(command, check=True)
             if fat_digest(card) != original_fat:
                 raise AssertionError('CP/M operations modified the FAT32 partition')

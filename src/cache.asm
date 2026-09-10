@@ -29,7 +29,7 @@ cache_invalidate:
     ld (cache_directory+6),hl
     ret
 
-; Public extended BIOS vector 17 (C033): flush both caches. A=0 success, 1
+; Public extended BIOS vector 17 (bios + 51): flush both caches. A=0 success, 1
 ; failure; IX/IY preserved. Dirty data is retained on every failure path.
 cache_flush:
     push ix
@@ -62,13 +62,13 @@ cache_flush_slot:
     ret z
     ld l,(ix+2)
     ld h,(ix+3)
-    ld (0x9e00),hl
+    ld (rom_workspace+0x00),hl
     ld l,(ix+4)
     ld h,(ix+5)
-    ld (0x9e02),hl
+    ld (rom_workspace+0x02),hl
     ld l,(ix+6)
     ld h,(ix+7)
-    ld (0x9e04),hl
+    ld (rom_workspace+0x04),hl
     ld hl,(cache_write_attempts)
     inc hl
     ld (cache_write_attempts),hl
@@ -145,12 +145,12 @@ cache_evicted:
     xor a
     ld (ix+0),a             ; a partial failed read is never a cache hit
     ld hl,(cache_request)
-    ld (0x9e00),hl
+    ld (rom_workspace+0x00),hl
     ld hl,(cache_request+2)
-    ld (0x9e02),hl
+    ld (rom_workspace+0x02),hl
     ld l,(ix+6)
     ld h,(ix+7)
-    ld (0x9e04),hl
+    ld (rom_workspace+0x04),hl
     ld hl,(cache_reads)
     inc hl
     ld (cache_reads),hl

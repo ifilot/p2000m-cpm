@@ -12,11 +12,11 @@
 ; Labels without a Routine header are local branches or data, not public calls.
 ; See docs/source-guide.md for units, call flow and tests.
 ;
-; CP/M 2.2 BIOS jump table at C000. Disk I/O exclusively uses port-2 SD/SRAM.
+; CP/M 2.2 BIOS jump table. Disk I/O exclusively uses port-2 SD/SRAM.
 
 ; ============================================================================
 ; BIOS ABI: fixed 17-entry CP/M 2.2 jump table
-; Each entry is a three-byte JP at C000h + 3*index. Do not insert data
+; Each entry is a three-byte JP at bios + 3*index. Do not insert data
 ; between entries: applications derive addresses from the warm-boot vector.
 ; ============================================================================
 
@@ -65,20 +65,24 @@ bios:
 ; Outputs:  No return: falls into warm_boot on success, kernel_error otherwise.
 ; Clobbers: AF, BC, DE, HL, SP; system state and all 128 KiB of cartridge SRAM.
 ;
-; LDIR clears 9F00h..9FFFh. Page-zero IOBYTE and saved command drive
+; LDIR clears runtime BSS except the ROM workspace. Page-zero IOBYTE and saved command drive
 ; start at zero. disk_initialize validates the SD layout before formatting L:.
 ; ----------------------------------------------------------------------------
 cold_boot:
-    ld sp,0x9d00
-    call cache_flush
-    or a
-    jp nz,kernel_error
-    call cache_invalidate
-    ld hl,0x9f00
-    ld de,0x9f01
-    ld bc,255
+    ld sp,system_stack_top
+    ; Runtime BSS is not read from SD: ROM workspace must survive the load.
+    ; Leave DBC0-DBFF (ROM state/CID) untouched until it is no longer needed.
+    ld hl,0xd800
+    ld de,0xd801
+    ld bc,0x3bf
     ld (hl),0
     ldir
+    ld hl,0xdc00
+    ld de,0xdc01
+    ld bc,0x3ff
+    ld (hl),0
+    ldir
+    call cache_invalidate
     xor a
     ld (3),a
     ld (4),a
@@ -94,7 +98,7 @@ cold_boot:
     or a
     jp nz,kernel_error
     xor a
-    ld (0x9e13),a           ; disable boot-only recovery display after disk setup
+    ld (rom_workspace+0x13),a           ; disable boot-only recovery display after disk setup
     ld hl,boot_vectors
     call kernel_activity
     ld hl,drive_row_0
@@ -122,11 +126,10 @@ cold_boot:
 ; Outputs:  No return: enters ccp_loop with DMA=0080h and standard page-zero jumps.
 ; Clobbers: AF, BC, DE, HL, SP; current_drive, user_dma, DMA, page-zero vectors.
 ;
-; 0005h jumps to 9800h, which jumps to the BDOS implementation. This
-; reports the TPA boundary below system stacks even though BDOS lives higher.
+; 0005h jumps directly to BDOS at the TPA boundary, below system stacks.
 ; ----------------------------------------------------------------------------
 warm_boot:
-    ld sp,0x9d00
+    ld sp,system_stack_top
 warm_flush:
     call cache_flush
     or a
@@ -153,11 +156,8 @@ warm_drive:
     ld (1),hl
     ld a,0xc3
     ld (5),a
-    ld (0x9800),a
-    ld hl,0x9800
-    ld (6),hl
     ld hl,bdos_entry
-    ld (0x9801),hl
+    ld (6),hl
     ld hl,0x80
     ld (user_dma),hl
     ld bc,0x80
@@ -185,10 +185,10 @@ disk_initialize:
     ld (record),a
     ld (record+1),a
     ld hl,0
-    ld (0x9e00),hl
-    ld (0x9e02),hl
+    ld (rom_workspace+0x00),hl
+    ld (rom_workspace+0x02),hl
     ld hl,sector_buffer
-    ld (0x9e04),hl
+    ld (rom_workspace+0x04),hl
     call 0xe003
     or a
     ret nz
@@ -636,9 +636,7 @@ record: dw 0
 dma: dw 0x80
 cursor: dw 0xf000
 
-defs 0xd800-$,0
-sector_buffer: defs 512,0
-directory_buffer: defs 128,0
-allocation_a: defs 256,0
-allocation_b: defs 256,0
-allocation_c: defs 16,0
+resident_code_end:
+; DEFS rejects negative padding: never silently grow into either system stack.
+defs resident_code_limit-$,0
+defs kernel_end-$,0

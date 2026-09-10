@@ -1,13 +1,13 @@
 {
-  "description": "Version 0.1.0 raw assembly baseline, generated metadata with SOURCE_DATE_EPOCH=0. Twelve drives, dashboard/TPA, A-only CPMTEST, L-only RAMTEST. ROM I/O vectors and TPA boundary retained.",
+  "description": "Version 0.2.0 raw assembly baseline, generated metadata with SOURCE_DATE_EPOCH=0. ROM-resident filesystem, checked ROM/kernel link, relocated workspace and 49920-byte TPA with SD I/O boundary test. A-only CPMTEST and L-only RAMTEST unchanged.",
   "artifacts": {
     "src/cartridge.asm": {
-      "bytes": 6060,
-      "sha256": "5b43ee8bbd725ffe379d68ef1fd6abe7ca181890a7185bbd44bb541ddfb34935"
+      "bytes": 8192,
+      "sha256": "de2af0933680c06414205eaaeaaf5a07a177a092cba422aeea0adc5c4fd65b2b"
     },
     "src/kernel.asm": {
-      "bytes": 16384,
-      "sha256": "db9a0ae801412e90e31c06b7608e4eb1d61cffe186d1aadc0738e1e0136cc96f"
+      "bytes": 14336,
+      "sha256": "26f1da2bd95231bbd0cfa57105ebd5c6a09126bbec1d65b05d03e1b1b7cf8415"
     },
     "programs/copy.asm": {
       "bytes": 510,
@@ -30,8 +30,8 @@
       "sha256": "8ba35812ce3294ee14b5aed8460d10d26c96a1b1dc287f5f5d13da1386c7152f"
     },
     "tests/tpalimit.asm": {
-      "bytes": 38656,
-      "sha256": "c74d88575004950fd6fe5b21b07a3a1049ea4ab6a949276f31440460bd1a461e"
+      "bytes": 49920,
+      "sha256": "064c4721892edd08d6ef47dd9dadfe6139fde78dca5f08d94f3a3df7601de5e7"
     }
   }
 }

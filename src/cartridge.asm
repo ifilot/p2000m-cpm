@@ -14,8 +14,11 @@
 ;
 ; Original P2000M boot cartridge. z80asm syntax, 16 KiB zero-padded image.
 ; ROM entry vectors after mapping: E000 boot, E003 read, E006 write, E009 init.
-; Block I/O ABI: 32-bit little-endian LBA at 9E00, buffer address at 9E04.
+; Block I/O ABI: 32-bit little-endian LBA at rom_workspace, buffer at +4.
 ; Returns A=0 on success, A=1 on failure. Clobbers AF/BC/DE/HL.
+include 'platform.inc'
+include 'bdos_workspace.inc'
+include 'kernel_exports.inc'
 org 0x1000
 ; Bit 1 clear: do not ask the monitor to attempt floppy DOS before entry.
 db 0x5c,0,0,0,0
@@ -125,12 +128,13 @@ org 0xe000
     jp sd_init
     jp boot_message        ; E00C: HL=NUL text, DE=video destination
     jp boot_activity       ; E00F: HL=text, replace activity row (18)
-    db 'P2MUI01',0          ; E012: dashboard ABI guard for the SD kernel
+    db 'P2MUI02',0          ; E012: dashboard ABI guard for the SD kernel
+    include 'link_id.inc'  ; E01A: 16-byte RAM/ROM cross-link fingerprint
 
-lba: equ 0x9e00
-buffer_ptr: equ 0x9e04
-command_packet: equ 0x9e06
-remaining: equ 0x9e0c
+lba: equ rom_workspace+0x00
+buffer_ptr: equ rom_workspace+0x04
+command_packet: equ rom_workspace+0x06
+remaining: equ rom_workspace+0x0c
 
 ; ============================================================================
 ; MAPPED ROM: load and verify the SD kernel
@@ -140,11 +144,11 @@ remaining: equ 0x9e0c
 
 ; ----------------------------------------------------------------------------
 ; Routine: boot
-; Load the fixed 16 KiB system image from the SD alignment gap.
+; Load the fixed 14 KiB system image from the SD alignment gap.
 ;
 ; Inputs:   Co-board map active; no caller register values are required.
 ; Outputs:  No return: JP A000h on verified load, or boot_error on failure.
-; Clobbers: AF, BC, DE, HL, SP; RAM 9600h header, 9E00h scratch, A000h-DFFFh kernel.
+; Clobbers: AF, BC, DE, HL, SP; RAM 9600h header, DBC0h scratch, A000h-D7FFh kernel.
 ;
 ; LBA 15 describes the image. LBAs 16..47 carry it; HL is the destination
 ; and remaining counts sectors. The checksum adds all bytes modulo 65536.
@@ -220,7 +224,7 @@ header_check:
     inc hl
     djnz header_check
     ld hl,(0x9608)
-    ld de,0x4000
+    ld de,kernel_bytes
     or a
     sbc hl,de
     jp nz,header_error
@@ -236,9 +240,9 @@ header_check:
     ld (lba),hl
     ld hl,0
     ld (lba+2),hl
-    ld hl,0xa000
+    ld hl,kernel_load
     ld (buffer_ptr),hl
-    ld a,32
+    ld a,kernel_sectors
     ld (remaining),a
 boot_read:
     call sd_read
@@ -262,7 +266,7 @@ boot_read:
     ld hl,msg_check
     call boot_activity
     ld hl,signature
-    ld de,0xa003
+    ld de,kernel_load+3
     ld b,8
 boot_check:
     ld a,(de)
@@ -272,7 +276,7 @@ boot_check:
     inc hl
     djnz boot_check
     ld hl,0xa000
-    ld bc,0x4000
+    ld bc,kernel_bytes
     ld de,0
 kernel_checksum:
     ld a,(hl)
@@ -299,7 +303,7 @@ kernel_checksum_next:
     ld hl,msg_ready_status
     ld de,0xf271
     call boot_message
-    jp 0xa000
+    jp kernel_load
 
 ; ----------------------------------------------------------------------------
 ; Routine: boot_error
@@ -344,8 +348,8 @@ boot_error_show:
 boot_halt:
     halt
     jr boot_halt
-system_signature: db 'P2MSYS01'
-signature: db 'P2MCPM01'
+system_signature: db 'P2MSYS02'
+signature: db 'P2MCPM02'
 error_text: db 'SD BOOT ERROR: card I/O failed or timed out; see active stage above',0
 header_error_text: db 'SD BOOT ERROR: invalid system header signature or kernel size',0
 signature_error_text: db 'SD BOOT ERROR: kernel signature mismatch',0
@@ -353,12 +357,12 @@ checksum_error_text: db 'SD BOOT ERROR: kernel checksum mismatch',0
 
 ; Fixed-row output survives the map switch and identifies the failing stage.
 ; boot_message: HL=NUL string, DE=video address; clobbers AF/DE/HL.
-boot_status: equ 0x9e10
-boot_attempt: equ 0x9e12
-boot_active: equ 0x9e13
-boot_load_budget: equ 0x9e14
-sd_last_command: equ 0x9e15
-sd_last_response: equ 0x9e16
+boot_status: equ rom_workspace+0x10
+boot_attempt: equ rom_workspace+0x12
+boot_active: equ rom_workspace+0x13
+boot_load_budget: equ rom_workspace+0x14
+sd_last_command: equ rom_workspace+0x15
+sd_last_response: equ rom_workspace+0x16
 boot_message:
     ld a,(hl)
     or a
@@ -389,7 +393,7 @@ boot_progress:
     push bc
     push de
     push hl
-    ld a,32
+    ld a,kernel_sectors
     ld hl,remaining
     sub (hl)
     ld b,'0'
@@ -415,11 +419,11 @@ msg_init_activity: db '  INITIALIZING SD  /  reset and SPI negotiation',0
 msg_sd: db 'SPI mode  /  attempt '
 msg_attempt: db '1/8',0
 msg_header: db '  CHECKING SYSTEM HEADER  /  SD sector 15',0
-msg_load: db '  LOADING KERNEL  /  SD 16-47 -> A000-DFFF   '
-msg_load_count: db '00/32 sectors',0
+msg_load: db '  LOADING KERNEL  /  SD 16-43 -> A000-D7FF   '
+msg_load_count: db '00/28 sectors',0
 msg_check: db '  CHECKING KERNEL  /  signature and checksum',0
 msg_enter: db '  STARTING KERNEL  /  entry A000',0
-msg_verified: db 'A000-DFFF  /  signature + checksum               ',0
+msg_verified: db 'A000-D7FF  /  signature + checksum               ',0
 msg_ready_status: db '          OK',0
 msg_starting_status: db '    STARTING',0
 msg_loading_status: db '     LOADING',0
@@ -455,7 +459,7 @@ boot_cid_fail:
     ld de,0xf311
     jp boot_message
 boot_cid_read:
-    ld hl,0x9e20
+    ld hl,rom_workspace+0x20
     ld b,16
 boot_cid_byte:
     call spi_rx
@@ -466,18 +470,18 @@ boot_cid_byte:
     call spi_rx
     call sd_close
     ld de,0xf2e5        ; row 9 column 21, after 'MID '
-    ld a,(0x9e20)
+    ld a,(rom_workspace+0x20)
     call boot_hex
     ld de,0xf2f0        ; row 9 column 32, after 'OEM '
-    ld hl,0x9e21
+    ld hl,rom_workspace+0x21
     ld b,2
     call boot_cid_ascii
     ld de,0xf339        ; row 10 column 25, after 'Product '
-    ld hl,0x9e23
+    ld hl,rom_workspace+0x23
     ld b,5
     call boot_cid_ascii
     ld de,0xf34a        ; row 10 column 42, after 'Serial '
-    ld hl,0x9e29
+    ld hl,rom_workspace+0x29
     ld b,4
 boot_cid_hex:
     ld a,(hl)
@@ -945,3 +949,9 @@ write_wait:
     or c
     jr nz,write_wait
     jp sd_fail
+; Always-mapped filesystem code. Its state and buffers remain in RAM.
+rom_driver_end:
+defs rom_filesystem_base-$,0
+include 'filesystem.asm'
+rom_filesystem_end:
+defs rom_end-$,0

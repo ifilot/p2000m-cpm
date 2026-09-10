@@ -1,4 +1,5 @@
 #include "p2000_machine.h"
+#include "memory_layout.h"
 #include <cstdint>
 #include <fstream>
 #include <filesystem>
@@ -28,23 +29,26 @@ static unsigned call(P2000Machine &m,unsigned address,unsigned bc=0,unsigned de=
     unsigned steps=0;
     while(m.peekMemory(0x9e71)!=0x5a && steps++<20000000) {
         if(m.programCounter()==0xe006 &&
-           (word(m,0x9e00)|(std::uint32_t(word(m,0x9e02))<<16))==failLba) {
+           (word(m,p2m_layout::rom_workspace)|(std::uint32_t(word(m,p2m_layout::rom_workspace+2))<<16))==failLba) {
             m.sdCartridge().eject();failLba=0xffffffff;
         }
         if(traffic) {
             if(m.programCounter()==0xe003)++traffic->reads;
             if(m.programCounter()==0xe006) {
                 ++traffic->writes;
-                traffic->commits.push_back(word(m,0x9e00)|(std::uint32_t(word(m,0x9e02))<<16));
+                traffic->commits.push_back(word(m,p2m_layout::rom_workspace)|(std::uint32_t(word(m,p2m_layout::rom_workspace+2))<<16));
             }
         }
         m.stepInstruction();
     }
     require(steps<20000000,"Cache call failed to return");
+    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom})
+        for(unsigned i=0;i<16;++i)
+            require(m.peekMemory(base+i)==0xa5,"Cache/recovery exceeded resident stack budget");
     return m.peekMemory(0x9e70);
 }
 static unsigned bios(P2000Machine &m,unsigned index,unsigned bc=0,Traffic *t=nullptr) {
-    return call(m,0xc000+3*index,bc,0,t);
+    return call(m,p2m_layout::bios+3*index,bc,0,t);
 }
 static void select(P2000Machine &m,unsigned drive,unsigned rec) {
     bios(m,9,drive);require(word(m,0x9e72)!=0,"Drive selection failed");
@@ -65,6 +69,8 @@ static void boot(P2000Machine &m,const std::string &emu,const std::string &build
     m.installCoBoard();m.sdCartridge().install();
     require(m.sdCartridge().insert(card,false,&error),error);frames(m,700);
     require(screen(m).find("A>")!=std::string::npos,"Cache fixture did not boot");
+    for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom})
+        for(unsigned i=0;i<16;++i)m.pokeMemory(base+i,0xa5);
 }
 static Traffic workload(P2000Machine &m,bool cached) {
     Traffic t;
@@ -80,7 +86,7 @@ static Traffic workload(P2000Machine &m,bool cached) {
 }
 int main(int argc,char **argv) {
     try {
-        require(argc==4 || argc==5,"Usage: cache-test EMULATOR BUILD CARD [BASELINE_KERNEL]");
+        require(argc==4,"Usage: cache-test EMULATOR BUILD CARD ");
         const std::string emu=argv[1],build=argv[2],card=argv[3];
         // Exercise actual file CLOSE and warm boot on a separate clean volume.
         const std::string fileCard=card+".files";
@@ -111,7 +117,7 @@ int main(int argc,char **argv) {
             require(sector(fileCard,133120)[15]==4,"CLOSE did not persist file size");
             pattern(file,99);require(call(file,5,21,0x8200)==0,"Warm-boot fixture write failed");
             require(file.sdCartridge().insert(fileCard,true,&error),error);
-            file.pokeMemory(0x66,0xc3);file.pokeMemory(0x67,3);file.pokeMemory(0x68,0xc0);
+            file.pokeMemory(0x66,0xc3);file.pokeMemory(0x67,(p2m_layout::bios+3)&255);file.pokeMemory(0x68,(p2m_layout::bios+3)>>8);
             file.requestNmi();frames(file,100);
             require(screen(file).find("SD flush failed: dirty data retained")!=std::string::npos,
                     "Warm boot silently ignored failed commit");
@@ -176,19 +182,6 @@ int main(int argc,char **argv) {
         require(sector(card,149504+151)[0]==0x69,"Disk reset failed to persist partition B");
         std::cout<<"PASS: independent caches, data-before-directory commits, failure retention/retry, failed-fill invalidation, barriers, neighbours and drive isolation\n";
 
-        if(argc==5) {
-            // Optional measured comparison with a saved pre-cache kernel.
-            P2000Machine baseline;boot(baseline,emu,build,card);
-            std::ifstream in(argv[4],std::ios::binary);
-            std::vector<unsigned char> kernel((std::istreambuf_iterator<char>(in)),{});
-            require(kernel.size()==16384,"Bad baseline kernel");
-            for(unsigned i=0;i<kernel.size();++i)baseline.pokeMemory(0xa000+i,kernel[i]);
-            baseline.pokeMemory(0x66,0xc3);baseline.pokeMemory(0x67,0);baseline.pokeMemory(0x68,0xc0);
-            baseline.requestNmi();frames(baseline,700);
-            auto old=workload(baseline,false);
-            require(old.reads==64 && old.writes==32,"Unexpected baseline sector counts");
-            std::cout<<"MEASURED baseline: "<<old.reads<<" reads + "<<old.writes<<" writes; cache: "<<t.reads<<" + "<<t.writes<<" (75% fewer transfers)\n";
-        }
         return 0;
     }catch(const std::exception &e){std::cerr<<e.what()<<'\n';return 1;}
 }

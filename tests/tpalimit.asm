@@ -11,6 +11,7 @@
 ;
 ; Exactly fills the advertised TPA. The CCP's return stack must be outside it.
 org 0x100
+include 'memory.inc'
 
 ; ----------------------------------------------------------------------------
 ; Routine: tpa_test_start
@@ -24,10 +25,68 @@ org 0x100
 ; and preserves C, DE, IX, IY. No program calls emulator host services.
 ; ----------------------------------------------------------------------------
 tpa_test_start:
-    ld a,(0x97ff)
+    ; Exercise real SD reads, dirty cache writes, close and reset while the
+    ; entire reclaimed 9800-C3FF region contains application-owned sentinels.
+    ld de,fcb
+    ld c,15
+    call 5
+    cp 0xff
+    jp nz,failed
+    ld de,fcb
+    ld c,22
+    call 5
+    cp 0xff
+    jr z,failed
+    ld de,tpa_limit-128
+    ld c,26
+    call 5
+    ld de,fcb
+    ld c,21
+    call 5
+    or a
+    jr nz,failed
+    ld de,fcb
+    ld c,16
+    call 5
+    cp 0xff
+    jr z,failed
+    ld c,13
+    call 5
+    ld de,fcb
+    ld c,15
+    call 5
+    cp 0xff
+    jr z,failed
+    xor a
+    ld (fcb+32),a
+    ld de,tpa_limit-128
+    ld c,26
+    call 5
+    ld de,fcb
+    ld c,20
+    call 5
+    or a
+    jr nz,failed
+    ld de,fcb
+    ld c,19
+    call 5
+    cp 0xff
+    jr z,failed
+    ld hl,0x9800
+    ld bc,tpa_limit-0x9800
+tpa_guard_loop:
+    ld a,(hl)
     cp 0xa5
     jr nz,failed
-    ld a,(0x96ff)
+    inc hl
+    dec bc
+    ld a,b
+    or c
+    jr nz,tpa_guard_loop
+    ld a,(tpa_limit-1)
+    cp 0xa5
+    jr nz,failed
+    ld a,(tpa_limit-257)
     cp 0xa5
     jr nz,failed
     ld de,passed
@@ -37,7 +96,7 @@ tpa_test_start:
 ; Routine: failed
 ; Choose a failure message if a top-of-TPA sentinel was overwritten.
 ;
-; Inputs:   Comparison at entry failed for 97FFh or 96FFh.
+; Inputs:   A BDOS operation or reclaimed-TPA sentinel comparison failed.
 ; Outputs:  Falls to print and returns through the CCP-provided stack.
 ; Clobbers: DE, then print registers.
 ; ----------------------------------------------------------------------------
@@ -58,4 +117,6 @@ print:
     ret
 passed: db 'TPA LIMIT PASS',13,10,'$'
 error: db 'TPA LIMIT FAIL',13,10,'$'
-defs 0x9800-$,0xa5
+fcb: db 1,'TPABOUNDTMP'
+    defs 24,0
+defs tpa_limit-$,0xa5

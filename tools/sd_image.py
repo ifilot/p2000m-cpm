@@ -3,6 +3,7 @@
 import argparse
 from pathlib import Path
 import struct
+from memory_layout import LAYOUT
 
 SECTOR = 512
 VOLUME_SIZE = 8 * 1024 * 1024
@@ -136,10 +137,10 @@ def create_image(path, files_a=(), files_b=(), *, files_by_drive=None):
 
 def install_kernel(path, kernel):
     """Install the fixed-size kernel and integrity header in the alignment gap."""
-    if len(kernel) != 16384 or kernel[3:11] != b'P2MCPM01':
-        raise ValueError('Expected a signed 16 KiB P2000M kernel')
+    if len(kernel) != LAYOUT['kernel_bytes'] or kernel[3:11] != b'P2MCPM02':
+        raise ValueError('Expected a signed 0.2 kernel (14 KiB)')
     header = bytearray(SECTOR)
-    header[:8] = b'P2MSYS01'
+    header[:8] = b'P2MSYS02'
     struct.pack_into('<HH', header, 8, len(kernel), sum(kernel) & 0xffff)
     with Path(path).open('r+b') as out:
         out.seek(15 * SECTOR)
@@ -150,7 +151,7 @@ def install_kernel(path, kernel):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('output', type=Path)
-    parser.add_argument('--kernel', type=Path, help='Install a built 16 KiB kernel')
+    parser.add_argument('--kernel', type=Path, help='Install a built 0.2 kernel')
     parser.add_argument('--a', nargs='*', default=[], metavar='FILE')
     parser.add_argument('--b', nargs='*', default=[], metavar='FILE')
     parser.add_argument('--drive', action='append', nargs='+', default=[], metavar='LETTER_OR_FILE',
@@ -158,7 +159,7 @@ def main():
     args = parser.parse_args()
     try:
         kernel = args.kernel.read_bytes() if args.kernel else None
-        if kernel is not None and (len(kernel) != 16384 or kernel[3:11] != b'P2MCPM01'):
+        if kernel is not None and (len(kernel) != LAYOUT['kernel_bytes'] or kernel[3:11] != b'P2MCPM02'):
             raise ValueError('Invalid kernel')
         files_by_drive = {}
         for group in args.drive:

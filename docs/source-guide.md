@@ -102,8 +102,9 @@ actual emulator core and operate on temporary SD images. They do not modify
 the emulator checkout or a user's working card.
 
 The assembly regression fixture records reviewed machine-code hashes. The
-cartridge, kernel and CPMTEST baselines include the boot diagnostics, progress
-reporting and cancellation changes; other artifacts retain their original hashes.
+0.2.0 ROM/kernel baseline includes the split ROM filesystem and relocated
+workspace/TPA. SOURCE_DATE_EPOCH=0 fixes metadata during the assembly regression.
+The two-pass link checks all ROM/RAM cross-references and rejects region overflow.
 It checks the ROM, full kernel, original programs and TPA
 boundary fixture, including their addresses, padding and fall-through layout.
 Do not automatically regenerate it on failure: a legitimate instruction
