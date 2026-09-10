@@ -37,6 +37,7 @@ python3 tools/build.py
 python3 tools/package.py  # optional: compressed image and SHA256SUMS
 python3 -m unittest discover -s tests -v
 python3 tools/test_emulator.py
+python3 tools/test_programs.py  # isolated utility and register-contract cases
 # Or specify another checkout:
 python3 tools/test_emulator.py --emulator /path/to/p2000m-emulator
 ```
@@ -120,3 +121,6 @@ to 128-byte records; the final record uses CP/M text padding (`1Ah`).
 
 See [design notes](docs/design.md) for the BIOS ABI, memory map, disk geometry,
 implementation boundaries, and test coverage.
+
+For a guided reading order, register conventions and the regression-test strategy,
+see the [Z80 source guide](docs/source-guide.md).

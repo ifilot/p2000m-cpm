@@ -1,0 +1,29 @@
+{
+  "description": "Raw z80asm output before source-commenting pass; preserve exact instructions, data, layout and fall-through behavior.",
+  "artifacts": {
+    "src/cartridge.asm": {
+      "bytes": 4751,
+      "sha256": "f22cf89525db8257e336bf8956953f03d3408f4cfe05825406ab805bca80a0eb"
+    },
+    "src/kernel.asm": {
+      "bytes": 16384,
+      "sha256": "ae4184ad7a11a8cf215090b21acd5eef3b7175cb0a5b2a73cb3ef937c187cfc6"
+    },
+    "programs/copy.asm": {
+      "bytes": 510,
+      "sha256": "cdea50db1bd69a8b5b6a7c87d069b291a70eff43426060279800f518d195d0da"
+    },
+    "programs/cpmtest.asm": {
+      "bytes": 1920,
+      "sha256": "721c025b0ba2c5e8645f8906ec17c929c62eee06df9a22ce5a9b444e7bbf0806"
+    },
+    "programs/hello.asm": {
+      "bytes": 58,
+      "sha256": "363975f533bdda25d9769a400585f74deeaefbb6ce457b3167fbe09b9a34bc06"
+    },
+    "tests/tpalimit.asm": {
+      "bytes": 38656,
+      "sha256": "c74d88575004950fd6fe5b21b07a3a1049ea4ab6a949276f31440460bd1a461e"
+    }
+  }
+}

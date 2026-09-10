@@ -1,5 +1,36 @@
+; ============================================================================
+; src/console.asm -- source tour and calling conventions
+; ============================================================================
+; Hardware-facing console routines. Public wrappers preserve caller pointers;
+; internal scanner/terminal routines use scratch registers for state machines.
+;
+; Headers use Inputs / Outputs / Clobbers; unlisted registers are preserved.
+; Preservation applies to returning paths only.
+; "Clobbers" includes result registers and anything a called routine may alter.
+; AF includes flags; CY denotes carry (not the C register). SP is balanced
+; on returning paths unless stated. No routine uses the alternate register set.
+; Labels without a Routine header are local branches or data, not public calls.
+; See docs/source-guide.md for units, call flow and tests.
+;
 ; Polled keyboard and 80x24 terminal. No monitor calls after memory remapping.
 ; Escape followed by a letter emits its control code; Escape Escape emits ESC.
+
+; ============================================================================
+; PUBLIC CONSOLE INPUT: nonblocking status and blocking character read
+; The pending-byte value and ready flag are separate so that NUL is a valid
+; character. key_poll generates one event per press, waiting for release.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: console_status
+; Report whether one keyboard character is waiting.
+;
+; Inputs:   No inputs.
+; Outputs:  A=FFh ready, A=0 otherwise; queued character is not consumed.
+; Clobbers: AF only; BC, DE, HL, IX, IY preserved.
+;
+; The wrapper saves working registers used by the matrix scanner.
+; ----------------------------------------------------------------------------
 console_status:
     push bc
     push de
@@ -14,6 +45,17 @@ status_done:
     pop de
     pop bc
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: console_input
+; Wait for and consume one queued keyboard character.
+;
+; Inputs:   No inputs; interrupts need not be enabled.
+; Outputs:  A = character, including NUL; key_ready is cleared.
+; Clobbers: AF only; BC, DE, HL, IX, IY preserved.
+;
+; Loops on console_status. It does not echo; BDOS chooses whether to echo.
+; ----------------------------------------------------------------------------
 console_input:
     call console_status
     or a
@@ -24,6 +66,24 @@ console_input:
     ld (key_ready),a
     pop af
     ret
+
+; ============================================================================
+; KEYBOARD SCANNER: row/bit state, shift tables and Escape prefix
+; Rows 0..8 contain keys; row 9 supplies Shift bits. Matrix inputs are
+; active low. This code talks directly to the keyboard, never the old monitor.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: key_poll
+; Scan for a fresh key press without waiting for a future event.
+;
+; Inputs:   key_ready/key_mask/key_row/key_escape retain state between calls.
+; Outputs:  A new character may be queued; no register return contract.
+; Clobbers: AF, BC, DE, HL; key state variables.
+;
+; C=row, D=row sample, E=one-bit mask, B=bits remaining, HL=key table.
+; An Escape press arms the prefix; the next key maps to its control character.
+; ----------------------------------------------------------------------------
 key_poll:
     ld a,(key_ready)
     or a
@@ -97,6 +157,13 @@ key_store:
     ld a,1
     ld (key_ready),a
     ret
+
+; ============================================================================
+; KEY TABLES: eight columns per keyboard row
+; Zero entries are ignored keys, not NUL input. Shift selects a parallel
+; table; the Escape prefix can generate NUL independently of the table.
+; ============================================================================
+
 keys_normal:
     db 8,'6',11,'Q','3','5','7','4'
     db 9,'H','Z','S','D','G','J','F'
@@ -118,6 +185,23 @@ keys_shift:
     db '3','>','2','1','[','?','k',34
     db '6','l','5','4','+','+','i','*'
 
+; ============================================================================
+; PUBLIC CONSOLE OUTPUT: 80-column text terminal
+; The wrapper preserves all main registers. Internal terminal helpers below
+; share cursor/column state and are not ABI-preserving wrappers themselves.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: console_output
+; Output one 7-bit character or handle a simple terminal control.
+;
+; Inputs:   C = character.
+; Outputs:  Video/cursor updated; all input registers and flags restored.
+; Clobbers: No general registers or flags; cursor, column and video may change.
+;
+; CR moves to column zero; LF advances a row; BS moves left; TAB emits
+; spaces to the next stop; FF clears. Other controls are ignored.
+; ----------------------------------------------------------------------------
 console_output:
     push af
     push bc
@@ -189,6 +273,17 @@ terminal_done:
     pop bc
     pop af
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: terminal_char
+; Store a printable character and advance/wrap the cursor.
+;
+; Inputs:   A = printable character; cursor/column are consistent.
+; Outputs:  cursor/column updated; scroll performed if needed.
+; Clobbers: AF, BC, DE, HL.
+;
+; Falls into terminal_scroll with HL pointing to the proposed next cursor.
+; ----------------------------------------------------------------------------
 terminal_char:
     ld hl,(cursor)
     ld (hl),a
@@ -200,6 +295,18 @@ terminal_char:
     xor a
 terminal_column:
     ld (column),a
+
+; ----------------------------------------------------------------------------
+; Routine: terminal_scroll
+; Commit a cursor position, scrolling the screen if it passed the end.
+;
+; Inputs:   HL = proposed character cursor; column already reflects its column.
+; Outputs:  [cursor] set, possibly 80 bytes lower after scrolling one line.
+; Clobbers: AF, BC, DE, HL.
+;
+; F780h is the first byte after 24*80 visible characters. LDIR moves
+; rows 1..23 up, and the final row is filled with spaces.
+; ----------------------------------------------------------------------------
 terminal_scroll:
     push hl
     ld de,0xf780
@@ -224,11 +331,44 @@ terminal_scroll:
 terminal_position:
     ld (cursor),hl
     ret
+
+; ============================================================================
+; UNCONNECTED DEVICES: standard BIOS list/punch/reader stubs
+; The system has no configured printer, punch or reader. Their BIOS vectors
+; still exist so the 17-entry table remains compatible with CP/M programs.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: null_output
+; Discard a character addressed to LIST or PUNCH.
+;
+; Inputs:   C = character (ignored).
+; Outputs:  Returns immediately.
+; Clobbers: None; all registers and flags preserved.
+; ----------------------------------------------------------------------------
 null_output:
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: null_input
+; Return end-of-file from the unconnected reader.
+;
+; Inputs:   No inputs.
+; Outputs:  A=1Ah (Ctrl-Z).
+; Clobbers: A only; flags preserved.
+; ----------------------------------------------------------------------------
 null_input:
     ld a,0x1a
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: list_status
+; Report the discard-only list device as ready.
+;
+; Inputs:   No inputs.
+; Outputs:  A=FFh.
+; Clobbers: A only; flags preserved.
+; ----------------------------------------------------------------------------
 list_status:
     ld a,0xff
     ret

@@ -53,13 +53,26 @@ def read_cpm_file(card, drive, name):
     return bytes(output)
 
 
+def compile_harness(emulator, name):
+    """Build a headless test against the real core; never alter its checkout."""
+    core = emulator / 'src/core'
+    cpu = emulator / 'src/vendor/superzazu_z80'
+    build = ROOT / 'build'
+    build.mkdir(exist_ok=True)
+    subprocess.run(['gcc', '-O2', '-c', str(cpu / 'z80.c'), '-o', str(build / 'z80.o')], check=True)
+    subprocess.run(['g++', '-O2', '-std=c++17', '-I' + str(core), '-I' + str(cpu),
+                    '-DP2000M_SOURCE_ROM_DIR="' + str(emulator / 'assets/roms') + '"',
+                    '-DP2000M_SOURCE_SOFTWARE_DIR="' + str(emulator / 'assets/software') + '"',
+                    str(ROOT / 'tests' / (name + '.cpp')), str(core / 'p2000_machine.cpp'),
+                    str(core / 'p2000_fdc.cpp'), str(core / 'p2000_sd.cpp'),
+                    str(build / 'z80.o'), '-o', str(build / (name + '-test'))], check=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--emulator', type=Path,
                         default=ROOT.parent / 'p2000m-emulator')
     args = parser.parse_args()
-    core = args.emulator / 'src/core'
-    cpu = args.emulator / 'src/vendor/superzazu_z80'
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
     # Verify the deliverable itself contains each requested utility byte-exact.
@@ -70,14 +83,8 @@ def main():
         if actual != expected + b'\x1a' * (-len(expected) % 128):
             raise AssertionError(f'Bundled utility mismatch: {source.name}')
     print('PASS: all seven standard utilities are present byte-exact in the built SD image', flush=True)
-    subprocess.run(['gcc', '-O2', '-c', str(cpu / 'z80.c'), '-o', str(build / 'z80.o')], check=True)
     for name in ('boot', 'cpm'):
-        subprocess.run(['g++', '-O2', '-std=c++17', '-I' + str(core), '-I' + str(cpu),
-                        '-DP2000M_SOURCE_ROM_DIR="' + str(args.emulator / 'assets/roms') + '"',
-                        '-DP2000M_SOURCE_SOFTWARE_DIR="' + str(args.emulator / 'assets/software') + '"',
-                        str(ROOT / 'tests' / (name + '.cpp')), str(core / 'p2000_machine.cpp'),
-                        str(core / 'p2000_fdc.cpp'), str(core / 'p2000_sd.cpp'),
-                        str(build / 'z80.o'), '-o', str(build / (name + '-test'))], check=True)
+        compile_harness(args.emulator, name)
         with tempfile.TemporaryDirectory(prefix='p2000m-cpm-') as tmp:
             card = Path(tmp) / 'writable.img'
             files = [build / 'HELLO.COM', build / 'CPMTEST.COM', build / 'COPY.COM'] if name == 'cpm' else []

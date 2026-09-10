@@ -1,5 +1,34 @@
+; ============================================================================
+; src/filesystem.asm -- source tour and calling conventions
+; ============================================================================
+; On-disk format engine shared by SD and SRAM. Helpers come first, followed
+; by file lifecycle/search/mutation, allocation, record I/O, and position queries.
+;
+; Headers use Inputs / Outputs / Clobbers; unlisted registers are preserved.
+; Preservation applies to returning paths only.
+; "Clobbers" includes result registers and anything a called routine may alter.
+; AF includes flags; CY denotes carry (not the C register). SP is balanced
+; on returning paths unless stated. No routine uses the alternate register set.
+; Labels without a Routine header are local branches or data, not public calls.
+; See docs/source-guide.md for units, call flow and tests.
+;
 ; CP/M directory/extent engine. 4 KiB/16-bit allocation on SD, 1 KiB/8-bit on SRAM.
 ; Directory sectors are cached within an operation; data writes are write-through.
+
+; ============================================================================
+; DRIVE CONTEXT: choose geometry and map logical drive bits
+; Three units recur below: records are 128 bytes, blocks are 1 or 4 KiB,
+; and logical extents are 16 KiB. A physical SD directory entry spans two extents.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: drive_mask
+; Convert a drive number to its login/protection mask.
+;
+; Inputs:   A = drive index 0..2.
+; Outputs:  A = 1 << drive; B=0.
+; Clobbers: AF, B; C, DE, HL preserved.
+; ----------------------------------------------------------------------------
 drive_mask:
     ld b,a
     ld a,1
@@ -9,14 +38,48 @@ mask_loop:
     ret z
     add a,a
     jr mask_loop
+
+; ----------------------------------------------------------------------------
+; Routine: fs_current
+; Set filesystem context from the current BDOS drive.
+;
+; Inputs:   [current_drive] = 0..2.
+; Outputs:  A=0/Z=1 on success; A=1/Z=0 on invalid drive.
+; Clobbers: AF, BC, DE, HL; geometry, selected drive, login mask, directory cache tag.
+;
+; Falls into the same context setup used for an explicit FCB drive.
+; ----------------------------------------------------------------------------
 fs_current:
     ld a,(current_drive)
     jr fs_use_drive
+
+; ----------------------------------------------------------------------------
+; Routine: fs_setup
+; Choose an FCB explicit drive or the current default.
+;
+; Inputs:   IX -> FCB; byte 0 is 0=default, 1=A:, 2=B:, 3=C:.
+; Outputs:  A=0/Z=1 success, A=1/Z=0 invalid drive.
+; Clobbers: AF, BC, DE, HL; filesystem/BIOS drive and geometry state.
+;
+; IX remains the FCB base throughout the filesystem helpers.
+; ----------------------------------------------------------------------------
 fs_setup:
     ld a,(ix+0)
     or a
     jr z,fs_current
     dec a
+
+; ----------------------------------------------------------------------------
+; Routine: fs_use_drive
+; Install geometry and allocation-map pointers for a given drive.
+;
+; Inputs:   A = zero-based drive 0..2.
+; Outputs:  A=0/Z=1 success, A=1/Z=0 failure.
+; Clobbers: AF, BC, DE, HL; context globals.
+;
+; SD: 512 entries, 2048 blocks, shift=5, EXM=1. SRAM: 64 entries,
+; 128 blocks, shift=3, EXM=0. Cache tag FFFFh forces the first directory read.
+; ----------------------------------------------------------------------------
 fs_use_drive:
     cp 3
     jp nc,disk_error
@@ -62,6 +125,17 @@ fs_ram_geometry:
     xor a
     ld (extent_mask),a
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_writable
+; Test the software read-only mask for the active filesystem drive.
+;
+; Inputs:   [fs_drive] is already selected.
+; Outputs:  A=0/Z=1 if writable; A=1/Z=0 if protected.
+; Clobbers: AF, B; C, DE, HL, IX preserved.
+;
+; File attributes and physical-card errors are checked separately.
+; ----------------------------------------------------------------------------
 fs_writable:
     ld a,(fs_drive)
     call drive_mask
@@ -72,6 +146,24 @@ fs_writable:
     jp disk_error
 
 ; HL = logical record, BC = DMA; A = 0 read / 1 write.
+
+; ============================================================================
+; BIOS ADAPTER: linear logical record -> track/sector/DMA
+; The filesystem works with absolute 128-byte record numbers within a volume.
+; The BIOS expects track plus sector, so this helper divides by SPT=128 or 32.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_io
+; Perform one synchronous BIOS read or write of a logical record.
+;
+; Inputs:   HL = record number; BC -> 128-byte DMA; A=0 read, A=1 write; fs_drive set.
+; Outputs:  A=0/Z=1 success or A=1/Z=0 failure.
+; Clobbers: AF, BC, DE, HL; io_mode, BIOS latches, media/DMA and ROM scratch.
+;
+; The DMA pointer and record are saved on the stack while shifts derive
+; track. E holds the shift count, C the sector, before the BIOS calls.
+; ----------------------------------------------------------------------------
 fs_io:
     ld (io_mode),a
     push bc
@@ -107,6 +199,23 @@ fs_io_shift:
     jp z,disk_read
     jp disk_write
 
+; ============================================================================
+; DIRECTORY CACHE: four 32-byte entries per logical record
+; scan_index is an entry number, cache_record is a 128-byte record number,
+; and entry_ptr points inside directory_buffer. Do not confuse these units.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_dir_get
+; Fetch the directory entry selected by scan_index.
+;
+; Inputs:   fs context set; [scan_index] = entry index.
+; Outputs:  A=0/Z=1 and HL=[entry_ptr] on success; A=1/Z=0 at end or I/O failure.
+; Clobbers: AF, BC, DE, HL; directory_buffer, cache_record, entry_ptr.
+;
+; Index/4 chooses the directory record; (index & 3)*32 chooses its entry.
+; Callers that distinguish end-of-directory from I/O errors use fs_scan_end first.
+; ----------------------------------------------------------------------------
 fs_dir_get:
     ld hl,(scan_index)
     ld de,(max_entries)
@@ -145,21 +254,67 @@ fs_dir_cached:
     ld (entry_ptr),hl
     xor a
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_dir_flush
+; Write the cached directory record through the BIOS.
+;
+; Inputs:   cache_record identifies directory_buffer, which contains edited entries.
+; Outputs:  A=0/Z=1 success, A=1/Z=0 failure.
+; Clobbers: AF, BC, DE, HL; disk contents.
+;
+; The current entire 128-byte directory record is written, not just one entry.
+; ----------------------------------------------------------------------------
 fs_dir_flush:
     ld hl,(cache_record)
     ld bc,directory_buffer
     ld a,1
     jp fs_io
+
+; ----------------------------------------------------------------------------
+; Routine: fs_scan_start
+; Start a directory scan at entry zero.
+;
+; Inputs:   No inputs.
+; Outputs:  HL=0; scan_index=0.
+; Clobbers: HL only; flags preserved.
+; ----------------------------------------------------------------------------
 fs_scan_start:
     ld hl,0
     ld (scan_index),hl
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_scan_advance
+; Advance the directory scan to the next entry.
+;
+; Inputs:   scan_index = current entry.
+; Outputs:  HL and scan_index = previous index + 1.
+; Clobbers: HL only; flags preserved.
+; ----------------------------------------------------------------------------
 fs_scan_advance:
     ld hl,(scan_index)
     inc hl
     ld (scan_index),hl
     ret
 ; Compare user and 11 filename bytes; '?' wildcards and attribute bits supported.
+
+; ============================================================================
+; MATCHING: user/name/attribute masking and extent groups
+; Directory byte 0 is a user number or E5h (unused). Bytes 1..11 hold name
+; and extension; their high bits are attributes and do not participate in names.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_name_match
+; Compare the selected entry against the FCB name pattern.
+;
+; Inputs:   IX -> FCB; entry_ptr -> directory entry; user_number selects the user.
+; Outputs:  Z=1 if user/name match, otherwise Z=0; question marks match any character.
+; Clobbers: AF, BC, DE, HL; IX preserved.
+;
+; B counts eleven characters; DE walks the FCB while HL walks the entry.
+; ----------------------------------------------------------------------------
 fs_name_match:
     ld hl,(entry_ptr)
     ld a,(user_number)
@@ -187,6 +342,15 @@ fs_name_next:
     xor a
     ret
 ; HL entry -> DE logical extent number.
+
+; ----------------------------------------------------------------------------
+; Routine: fs_entry_extent
+; Decode an entry logical extent number from EX and S2.
+;
+; Inputs:   HL -> 32-byte directory entry.
+; Outputs:  DE = (S2 & 63)*32 + (EX & 31); original HL restored.
+; Clobbers: AF, DE; BC, HL, IX preserved.
+; ----------------------------------------------------------------------------
 fs_entry_extent:
     push hl
     ld de,12
@@ -210,6 +374,18 @@ fs_entry_extent:
     ex de,hl
     pop hl
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_extent_match
+; Compare physical extent groups, or accept the wildcard sentinel.
+;
+; Inputs:   entry_ptr -> candidate; wanted_extent = logical extent, or FFFFh for any.
+; Outputs:  Z=1 if matched, Z=0 otherwise; no scalar result contract.
+; Clobbers: AF, DE, HL.
+;
+; Masking out EXM collapses the two SD logical extents in one directory
+; entry into the same group. SRAM EXM=0 keeps one logical extent per entry.
+; ----------------------------------------------------------------------------
 fs_extent_match:
     ld hl,(wanted_extent)
     ld a,h
@@ -230,6 +406,17 @@ fs_extent_match:
     or a
     sbc hl,de
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_find
+; Scan for the first matching name and physical extent group.
+;
+; Inputs:   IX -> FCB; fs context, wanted_extent and user_number set.
+; Outputs:  A=0/Z=1, HL=entry_ptr and found_index set; A=1/Z=0 otherwise.
+; Clobbers: AF, BC, DE, HL; scan/cache/entry globals.
+;
+; Uses fs_name_match then fs_extent_match. FFFFh means any extent.
+; ----------------------------------------------------------------------------
 fs_find:
     call fs_scan_start
 fs_find_loop:
@@ -249,11 +436,39 @@ fs_found:
     ld hl,(entry_ptr)
     xor a
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_any_extent
+; Set the wildcard extent sentinel for name-only operations.
+;
+; Inputs:   No inputs.
+; Outputs:  HL=FFFFh; wanted_extent=FFFFh.
+; Clobbers: HL only; flags preserved.
+; ----------------------------------------------------------------------------
 fs_any_extent:
     ld hl,0xffff
     ld (wanted_extent),hl
     ret
 ; Derive 16-bit sequential record from EX/S2/CR. Carry flags overflow.
+
+; ============================================================================
+; FCB POSITION: logical records, extents, and allocation copies
+; FCB offsets: EX=12, S1=13, S2=14, RC=15, allocation=16..31, CR=32,
+; random record R0/R1/R2=33..35. CR may equal 128 at a sequential boundary.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_position
+; Convert the FCB sequential position into a record number.
+;
+; Inputs:   IX -> FCB with EX/S2/CR set.
+; Outputs:  HL and rw_record = record, CY=0 when valid. CY=1 on overflow.
+;           Invalid masked S2>=16 returns zero; final-add overflow returns low 16 bits.
+; Clobbers: AF, BC, DE, HL.
+;
+; Record = ((S2 & 63)*32 + (EX & 31))*128 + CR. The separate
+; overflow path rejects S2>=16 rather than silently wrapping an 8 MiB file.
+; ----------------------------------------------------------------------------
 fs_position:
     ld a,(ix+14)
     and 63
@@ -281,11 +496,29 @@ fs_position_shift:
     add hl,de
     ld (rw_record),hl
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_position_overflow
+; Return an invalid sequential-position result.
+;
+; Inputs:   Tail-entered for S2 outside the supported 8 MiB logical-file range.
+; Outputs:  HL=0, rw_record=0, CY=1.
+; Clobbers: F, HL.
+; ----------------------------------------------------------------------------
 fs_position_overflow:
     ld hl,0
     ld (rw_record),hl
     scf
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_want_position
+; Derive the logical extent to find from a record number.
+;
+; Inputs:   rw_record = logical record within a file.
+; Outputs:  HL and wanted_extent = rw_record / 128.
+; Clobbers: AF, B, HL; other pointers preserved.
+; ----------------------------------------------------------------------------
 fs_want_position:
     ld hl,(rw_record)
     ld b,7
@@ -296,6 +529,18 @@ fs_want_shift:
     ld (wanted_extent),hl
     ret
 ; Copy allocations and RC from entry_copy, retaining current logical position.
+
+; ----------------------------------------------------------------------------
+; Routine: fs_sync_fcb
+; Copy allocation/length metadata while retaining the logical position.
+;
+; Inputs:   IX -> FCB; entry_copy holds the matched entry; rw_record is position.
+; Outputs:  FCB EX/S1/S2/RC/allocation/CR updated; IX unchanged.
+; Clobbers: AF, BC, DE, HL; FCB bytes 12..32.
+;
+; On SD, directory EX may describe the second logical extent while the
+; caller is reading the first. In that case RC is reported as 128, not the tail RC.
+; ----------------------------------------------------------------------------
 fs_sync_fcb:
     ld hl,entry_copy+16
     push ix
@@ -341,16 +586,52 @@ fs_sync_s2:
 fs_sync_rc:
     ld (ix+15),a
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_copy_entry
+; Save the current directory entry across scans and allocation work.
+;
+; Inputs:   entry_ptr -> cached 32-byte entry.
+; Outputs:  entry_copy receives those 32 bytes.
+; Clobbers: AF, BC, DE, HL.
+;
+; The copy is necessary because rebuilding the allocation map reuses
+; the directory cache, and would otherwise destroy the pending file metadata.
+; ----------------------------------------------------------------------------
 fs_copy_entry:
     ld hl,(entry_ptr)
     ld de,entry_copy
     ld bc,32
     ldir
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_result_index
+; Convert the found directory index to the standard BDOS return slot.
+;
+; Inputs:   found_index = absolute directory entry index.
+; Outputs:  HL = found_index & 3, the slot within a 128-byte directory record.
+; Clobbers: AF, HL.
+; ----------------------------------------------------------------------------
 fs_result_index:
     ld a,(found_index)
     and 3
     jp return_a
+
+; ============================================================================
+; FILE LIFECYCLE: open/close/create and persistent entry updates
+; These handlers return a directory slot 0..3 or FFh. Their IX FCB pointer
+; is established by the BDOS dispatcher; CALL 5 protects the application registers.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_open
+; BDOS 15: locate an extent and populate the caller FCB.
+;
+; Inputs:   IX -> FCB with drive/name and sequential position.
+; Outputs:  HL=slot 0..3 on success, 00FFh if invalid/missing/error.
+; Clobbers: AF, BC, DE, HL; FCB and filesystem scratch.
+; ----------------------------------------------------------------------------
 fs_open:
     call fs_setup
     jp nz,return_ff
@@ -362,6 +643,18 @@ fs_open:
     call fs_copy_entry
     call fs_sync_fcb
     jp fs_result_index
+
+; ----------------------------------------------------------------------------
+; Routine: fs_close
+; BDOS 16: confirm the named file exists after synchronous writes.
+;
+; Inputs:   IX -> FCB with drive/name.
+; Outputs:  HL=slot 0..3 if found, 00FFh otherwise.
+; Clobbers: AF, BC, DE, HL; scan state.
+;
+; No dirty FCB is merged here: fs_write already persists each allocation
+; and length update. This is this implementation's write-through CLOSE contract.
+; ----------------------------------------------------------------------------
 fs_close:
     call fs_setup
     jp nz,return_ff
@@ -370,6 +663,17 @@ fs_close:
     jp nz,return_ff
     ; All record/metadata updates have already reached the medium.
     jp fs_result_index
+
+; ----------------------------------------------------------------------------
+; Routine: fs_make
+; BDOS 22: create a new empty file without replacing an existing one.
+;
+; Inputs:   IX -> FCB with drive/name; user_number selects namespace.
+; Outputs:  HL=slot 0..3 and FCB initialized, or 00FFh on failure.
+; Clobbers: AF, BC, DE, HL; directory, FCB and scratch.
+;
+; Checks any existing extent first, then creates extent zero with no blocks.
+; ----------------------------------------------------------------------------
 fs_make:
     call fs_setup
     jp nz,return_ff
@@ -385,6 +689,18 @@ fs_make:
     jp nz,return_ff
     call fs_sync_fcb
     jp fs_result_index
+
+; ----------------------------------------------------------------------------
+; Routine: fs_create_extent
+; Allocate an unused directory entry for wanted_extent.
+;
+; Inputs:   IX -> FCB name; wanted_extent and fs context set; caller checks write access.
+; Outputs:  A=0/Z=1 success, A=1/Z=0 on full directory or I/O error; found_index set.
+; Clobbers: AF, BC, DE, HL; entry_copy, directory/cache state and medium.
+;
+; Only metadata is created here. Allocation pointers remain zero until
+; a write allocates a data block. E5h identifies a reusable directory slot.
+; ----------------------------------------------------------------------------
 fs_create_extent:
     call fs_scan_start
 fs_free_entry:
@@ -424,6 +740,17 @@ fs_create_s2:
     ld a,l
     ld (entry_copy+14),a
     jp fs_store_entry
+
+; ----------------------------------------------------------------------------
+; Routine: fs_store_entry
+; Persist entry_copy at the remembered directory index.
+;
+; Inputs:   found_index = target slot; entry_copy = complete replacement entry.
+; Outputs:  A=0/Z=1 success, A=1/Z=0 failure.
+; Clobbers: AF, BC, DE, HL; directory buffer and medium.
+;
+; Reloads the correct directory record in case another scan displaced it.
+; ----------------------------------------------------------------------------
 fs_store_entry:
     ld hl,(found_index)
     ld (scan_index),hl
@@ -436,6 +763,23 @@ fs_store_entry:
     ldir
     jp fs_dir_flush
 
+; ============================================================================
+; DIRECTORY ENUMERATION: saved pattern and search continuation
+; Search First copies the caller pattern, because DMA output may overwrite
+; caller memory. Search Next uses that saved pattern rather than the new DE argument.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_first
+; BDOS 17: begin wildcard directory enumeration.
+;
+; Inputs:   IX -> 36-byte FCB; user_dma -> 128-byte result buffer.
+; Outputs:  HL=slot 0..3 and DMA contains its directory record; 00FFh if none/error.
+; Clobbers: AF, BC, DE, HL, IX; saved search state and user DMA.
+;
+; Sets search_index=0 and falls through into fs_next. EX=? lists all
+; physical extents; otherwise the requested extent group is matched.
+; ----------------------------------------------------------------------------
 fs_first:
     call fs_setup
     jp nz,return_ff
@@ -452,6 +796,18 @@ fs_first:
     ld (search_active),a
     ld hl,0
     ld (search_index),hl
+
+; ----------------------------------------------------------------------------
+; Routine: fs_next
+; BDOS 18: continue the saved directory search.
+;
+; Inputs:   search_active, search_drive, search_fcb and search_index from Search First.
+; Outputs:  HL=slot 0..3 with DMA record, or 00FFh at end/error.
+; Clobbers: AF, BC, DE, HL, IX; search/cache state and user DMA.
+;
+; IX is switched to search_fcb. The surrounding public BDOS entry restores
+; the application IX when the handler returns.
+; ----------------------------------------------------------------------------
 fs_next:
     ld a,(search_active)
     or a
@@ -496,6 +852,23 @@ fs_search_end:
     ld (search_active),a
     jp return_ff
 
+; ============================================================================
+; DIRECTORY MUTATION: wildcard deletion, rename and attribute bits
+; These operations scan all matching extents, not only the first. Attribute
+; bits are masked out during name comparison, then preserved or edited explicitly.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_delete
+; BDOS 19: mark matching directory entries unused.
+;
+; Inputs:   IX -> FCB pattern; selected namespace and software protection checked.
+; Outputs:  HL=0 if at least one entry deleted, 00FFh if none/protected/I/O error.
+; Clobbers: AF, BC, DE, HL; matching directory entries.
+;
+; Read-only files are rejected. Space is reclaimed on the next allocation
+; map rebuild; no data blocks need clearing to delete a file.
+; ----------------------------------------------------------------------------
 fs_delete:
     call fs_setup
     jp nz,return_ff
@@ -527,11 +900,32 @@ fs_delete_loop:
 fs_delete_next:
     call fs_scan_advance
     jr fs_delete_loop
+
+; ----------------------------------------------------------------------------
+; Routine: fs_multi_result
+; Return success only if a multi-entry operation changed something.
+;
+; Inputs:   any_match = zero or nonzero.
+; Outputs:  HL=0 if changed, 00FFh otherwise.
+; Clobbers: AF, HL.
+; ----------------------------------------------------------------------------
 fs_multi_result:
     ld a,(any_match)
     or a
     jp z,return_ff
     jp return_zero
+
+; ----------------------------------------------------------------------------
+; Routine: fs_rename
+; BDOS 23: rename all matching extents without overwriting a destination.
+;
+; Inputs:   IX -> FCB: old name bytes 1..11, new name bytes 17..27.
+; Outputs:  HL=0 if renamed, 00FFh if missing/collision/protected/error.
+; Clobbers: AF, BC, DE, HL; directory; IX restored after destination search.
+;
+; The destination lookup temporarily adds 16 to IX. Mutation preserves
+; existing attribute bits while replacing only the low seven filename bits.
+; ----------------------------------------------------------------------------
 fs_rename:
     call fs_setup
     jp nz,return_ff
@@ -546,11 +940,32 @@ fs_rename:
     pop ix
     jp z,return_ff
     jr fs_modify
+
+; ----------------------------------------------------------------------------
+; Routine: fs_attributes
+; BDOS 30: copy requested filename attribute bits into matching entries.
+;
+; Inputs:   IX -> FCB; high bits of name/type bytes carry desired attributes.
+; Outputs:  HL=0 if any entry updated, 00FFh otherwise.
+; Clobbers: AF, BC, DE, HL; directory and cache state.
+; ----------------------------------------------------------------------------
 fs_attributes:
     call fs_setup
     jp nz,return_ff
     call fs_writable
     jp nz,return_ff
+
+; ----------------------------------------------------------------------------
+; Routine: fs_modify
+; Shared entry loop for rename and attribute updates.
+;
+; Inputs:   IX -> FCB; fs context is writable; function=23 rename or 30 attributes.
+; Outputs:  HL=0 if changed, 00FFh if no match or failure.
+; Clobbers: AF, BC, DE, HL; matching directory records.
+;
+; Low name bits and high attribute bits are handled separately. Every
+; modified directory record is written before advancing the scan.
+; ----------------------------------------------------------------------------
 fs_modify:
     xor a
     ld (any_match),a
@@ -619,6 +1034,23 @@ fs_modify_next:
     jr fs_modify_loop
 
 ; Allocation map: bit 7 represents block zero, as CP/M specifies.
+
+; ============================================================================
+; ALLOCATION: rebuild CP/M bitmaps and initialize new blocks
+; CP/M maps block zero to bit 7, not bit 0. SD allocation pointers are
+; 16-bit little-endian words; RAM-drive pointers are single bytes.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_bit
+; Calculate a bitmap byte address and mask for a block.
+;
+; Inputs:   DE = block number; alloc_ptr -> bitmap.
+; Outputs:  HL -> bitmap byte; A = 80h >> (block & 7); DE preserved.
+; Clobbers: AF, B, HL; C, DE, IX preserved.
+;
+; The byte index is block/8. This helper does not read or modify the bit.
+; ----------------------------------------------------------------------------
 fs_bit:
     push de
     ld a,e
@@ -644,6 +1076,15 @@ fs_bit_address:
     add hl,de
     pop de
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_mark
+; Set a block's allocation bit after checking its range.
+;
+; Inputs:   DE = block number; max_blocks and alloc_ptr match the active drive.
+; Outputs:  A=0/Z=1 success; A=1/Z=0 if block >= max_blocks; DE preserved.
+; Clobbers: AF, B, HL; allocation bitmap.
+; ----------------------------------------------------------------------------
 fs_mark:
     push de
     ld hl,(max_blocks)
@@ -657,6 +1098,18 @@ fs_mark:
     ld (hl),a
     xor a
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_rebuild
+; Reconstruct the allocation bitmap from all active directory entries.
+;
+; Inputs:   fs context and allocation pointer initialized.
+; Outputs:  A=0/Z=1 success, A=1/Z=0 on I/O or invalid block pointer.
+; Clobbers: AF, BC, DE, HL; bitmap, directory cache and scan state.
+;
+; Start with reserved directory blocks marked. Each user 0..15 entry
+; contributes 8 word pointers (SD) or 16 byte pointers (SRAM). Free E5h entries skip.
+; ----------------------------------------------------------------------------
 fs_rebuild:
     ld hl,(alloc_ptr)
     ld d,h
@@ -721,6 +1174,18 @@ fs_rebuild_next:
 fs_rebuild_done:
     xor a
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: fs_allocate
+; Find a free block, mark it and zero its physical records.
+;
+; Inputs:   fs context writable; no live data may alias file_buffer.
+; Outputs:  A=0/Z=1 with rw_block set; A=1/Z=0 on full disk or I/O failure.
+; Clobbers: AF, BC, DE, HL; bitmap, file_buffer, zeroing counters and medium.
+;
+; The directory copy is kept separately while rebuild scans all entries.
+; Zeroing happens before its allocation pointer is committed to a file entry.
+; ----------------------------------------------------------------------------
 fs_allocate:
     call fs_rebuild
     or a
@@ -772,7 +1237,34 @@ fs_zero_loop:
     xor a
     ret
 
+; ============================================================================
+; RECORD ENGINE: sequential and random reads/writes share one path
+; rw_record is a position inside a file. Allocation lookup converts it to
+; a physical block and then a volume-relative record passed to fs_io.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_read
+; BDOS 20: read at EX/S2/CR, advancing only after success.
+;
+; Inputs:   IX -> FCB; function=20; user_dma -> 128-byte destination.
+; Outputs:  HL=0 success, 1 EOF/unwritten, 6 overflow, or other failure status.
+; Clobbers: AF, BC, DE, HL; FCB position, DMA and filesystem scratch.
+;
+; This label aliases fs_write; the function byte selects direction later.
+; ----------------------------------------------------------------------------
 fs_read:
+
+; ----------------------------------------------------------------------------
+; Routine: fs_write
+; BDOS 21: write at EX/S2/CR, allocating blocks/extents as required.
+;
+; Inputs:   IX -> FCB; function=21; user_dma -> 128-byte source.
+; Outputs:  HL=0 success; nonzero failure (including full/protected/error/overflow).
+; Clobbers: AF, BC, DE, HL; FCB, directory, allocation map, medium and scratch.
+;
+; Shares the sequential-position setup with fs_read, then enters fs_rw_begin.
+; ----------------------------------------------------------------------------
 fs_write:
     call fs_setup
     jp nz,return_ff
@@ -780,7 +1272,30 @@ fs_write:
     ld a,6
     jp c,return_a
     jr fs_rw_begin
+
+; ----------------------------------------------------------------------------
+; Routine: fs_random_read
+; BDOS 33: read at the 24-bit R0/R1/R2 position without incrementing it.
+;
+; Inputs:   IX -> FCB; function=33; R2 must be zero; user_dma -> destination.
+; Outputs:  HL=0 success; 1 unwritten record, 4 missing extent, 6 overflow, or error.
+; Clobbers: AF, BC, DE, HL; FCB sequential-position fields, DMA and scratch.
+;
+; Aliases fs_random_write: direction comes from function, not the entry address.
+; ----------------------------------------------------------------------------
 fs_random_read:
+
+; ----------------------------------------------------------------------------
+; Routine: fs_random_write
+; BDOS 34/40: write the requested random record.
+;
+; Inputs:   IX -> FCB; function=34 or 40; R2=0; user_dma -> source record.
+; Outputs:  HL=0 success; nonzero full/protected/I/O/overflow status.
+; Clobbers: AF, BC, DE, HL; FCB, allocation/directory state and medium.
+;
+; All newly allocated blocks are zero-filled here, so function 40
+; requires no separate transfer engine. Random R0/R1/R2 are not advanced.
+; ----------------------------------------------------------------------------
 fs_random_write:
     call fs_setup
     jp nz,return_ff
@@ -791,6 +1306,18 @@ fs_random_write:
     ld l,(ix+33)
     ld h,(ix+34)
     ld (rw_record),hl
+
+; ----------------------------------------------------------------------------
+; Routine: fs_rw_begin
+; Resolve the requested extent and perform the selected record operation.
+;
+; Inputs:   rw_record set; IX -> FCB; fs context and function identify read/write mode.
+; Outputs:  HL = BDOS record status; updates FCB after successful I/O.
+; Clobbers: AF, BC, DE, HL; directory cache, entry_copy, allocation state, DMA/media.
+;
+; Work proceeds as extent lookup -> length/protection checks -> block
+; lookup/allocation -> data I/O -> metadata commit -> FCB synchronization.
+; ----------------------------------------------------------------------------
 fs_rw_begin:
     call fs_want_position
     call fs_find
@@ -894,9 +1421,30 @@ fs_pointer_read:
     inc hl
     ld (hl),d
     jr fs_data_io
+
+; ----------------------------------------------------------------------------
+; Routine: fs_eof
+; Return the record-not-present/EOF status.
+;
+; Inputs:   Reached by a tail branch from the record engine.
+; Outputs:  HL=1.
+; Clobbers: A, HL.
+; ----------------------------------------------------------------------------
 fs_eof:
     ld a,1
     jp return_a
+
+; ----------------------------------------------------------------------------
+; Routine: fs_data_io
+; Translate the allocated block into a volume record and transfer data.
+;
+; Inputs:   rw_block allocated; rw_record, function, user_dma and entry_copy valid.
+; Outputs:  HL = BDOS result; successful sequential calls leave CR incremented.
+; Clobbers: AF, BC, DE, HL; DMA/media, entry metadata, FCB and scratch.
+;
+; Data is written before the new high-water mark is persisted. CR=128
+; is deliberately left for fs_position to fold into the next extent on next call.
+; ----------------------------------------------------------------------------
 fs_data_io:
     ld hl,(rw_block)
     ld a,(block_shift)
@@ -980,6 +1528,20 @@ fs_sequential_advance:
     inc (ix+32)
     jp return_zero
 
+; ============================================================================
+; POSITION QUERIES: sequential-to-random conversion and file length
+; A CP/M file can have sparse extents. Size is the maximum extent end,
+; not the number of allocated records. 65536 records needs the R2 high byte.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: fs_setrandom
+; BDOS 36: record the current sequential position in R0/R1/R2.
+;
+; Inputs:   IX -> FCB with EX/S2/CR.
+; Outputs:  HL=0; FCB random word set and R2 receives overflow carry.
+; Clobbers: AF, BC, DE, HL; rw_record, FCB bytes 33..35.
+; ----------------------------------------------------------------------------
 fs_setrandom:
     call fs_position
     ld (ix+33),l
@@ -988,6 +1550,18 @@ fs_setrandom:
     adc a,0
     ld (ix+35),a
     jp return_zero
+
+; ----------------------------------------------------------------------------
+; Routine: fs_size
+; BDOS 35: scan all matching extents for the logical file size.
+;
+; Inputs:   IX -> FCB name/drive; user_number selects namespace.
+; Outputs:  HL=0 and FCB R0/R1/R2=size in records, or 00FFh on error.
+; Clobbers: AF, BC, DE, HL; FCB random fields and scan/size scratch.
+;
+; Each candidate contributes extent*128 + RC. Carry records an exact
+; 65536-record result without wrapping it to an apparent empty file.
+; ----------------------------------------------------------------------------
 fs_size:
     call fs_setup
     jp nz,return_ff
@@ -1045,6 +1619,17 @@ fs_size_save:
     ld (ix+35),a
     jp return_zero
 
+; ----------------------------------------------------------------------------
+; Routine: fs_scan_end
+; Test whether the directory entry scan has reached its limit.
+;
+; Inputs:   scan_index and max_entries initialized.
+; Outputs:  Z=1 exactly at the end; HL=scan_index-max_entries.
+; Clobbers: F, DE, HL; A and BC preserved.
+;
+; Shared scan helper; delete/modify/size call it before fs_dir_get so an
+; I/O failure is not confused with normal end-of-directory.
+; ----------------------------------------------------------------------------
 fs_scan_end:
     ld hl,(scan_index)
     ld de,(max_entries)

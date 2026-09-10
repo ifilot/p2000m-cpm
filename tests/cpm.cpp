@@ -2,12 +2,13 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <vector>
 static void frames(P2000Machine &m,int n) { while(n--) m.runFrame(); }
 static std::string screen(P2000Machine &m) {return std::string((const char*)m.characters(),1920);}
 static void require(bool b,const std::string &s) {if(!b) throw std::runtime_error(s);}
 static void type(P2000Machine &m,const std::string &s) {
     const std::string matrix =
-        " 6 Q3574" " HZSDGJF" "  0 # , " " N<XCBMV" " YAWETUR" " 9*/ 01-" "9O87 P8@" "3.21]/K2" "6L54=;I:";
+        " 6 Q3574" " HZSDGJF" "   0# , " " N<XCBMV" " YAWETUR" " 9*/ 01-" "9O87 P8@" "3.21]/K2" "6L54=;I:";
     for(char c:s) {
         unsigned pos=0;
         if(c=='\n') pos=6*8+4;
@@ -104,10 +105,108 @@ static void edge_tests(P2000Machine &m) {
     require(bdos(m,21,0x8200)==0,"Drive reset did not clear protection");
     std::cout << "PASS: sparse 8 MiB logical file, zero fill, overflow, attributes, user isolation, full directory/reclaim, drive protection" << std::endl;
 }
+// Execute a public entry with register sentinels, then snapshot actual CPU state.
+// The NMI trampoline only arranges the call; no OS operation is mocked.
+static unsigned word(P2000Machine &m,unsigned address) {
+    return m.peekMemory(address) | (m.peekMemory(address+1)<<8);
+}
+static void contract_call(P2000Machine &m,unsigned target,unsigned bc) {
+    std::vector<unsigned char> code={
+        0x31,0,0x95,              // LD SP,9500h
+        0x21,0x45,0xa5,0xe5,0xf1,// AF=A545h (known flags)
+        0x01,(unsigned char)bc,(unsigned char)(bc>>8),
+        0x11,0x56,0x34,0x21,0x9a,0x78,
+        0xdd,0x21,0xbc,0x6a,0xfd,0x21,0xde,0x5b,
+        0xcd,(unsigned char)target,(unsigned char)(target>>8),
+        0x22,4,0x85,0xed,0x43,0,0x85,0xed,0x53,2,0x85,
+        0xdd,0x22,6,0x85,0xfd,0x22,8,0x85,0xed,0x73,10,0x85,
+        0xf5,0xe1,0x22,12,0x85,
+        0x3e,0x5a,0x32,14,0x85,0x76
+    };
+    for(unsigned i=0;i<code.size();++i)m.pokeMemory(0x8000+i,code[i]);
+    m.pokeMemory(0x66,0xc3);m.pokeMemory(0x67,0);m.pokeMemory(0x68,0x80);
+    m.pokeMemory(0x850e,0);m.requestNmi();
+    for(int i=0;i<200 && m.peekMemory(0x850e)!=0x5a;++i)frames(m,10);
+    require(m.peekMemory(0x850e)==0x5a,"Register contract timed out");
+    require(word(m,0x8502)==0x3456,"DE preservation");
+    require(word(m,0x8506)==0x6abc,"IX preservation");
+    require(word(m,0x8508)==0x5bde,"IY preservation");
+    require(word(m,0x850a)==0x9500,"SP balance");
+}
+static void contract_tests(P2000Machine &m) {
+    // SETTRK, SETSEC and SETDMA promise to preserve every register and flag.
+    for(unsigned target:{0xc01eu,0xc021u,0xc024u}) {
+        contract_call(m,target,0x1234);
+        require(word(m,0x8500)==0x1234 && word(m,0x8504)==0x789a &&
+                word(m,0x850c)==0xa545,"BIOS setter contract");
+    }
+    contract_call(m,0xc030,0x1234); // SECTRAN: HL=BC
+    require(word(m,0x8504)==0x1234 && word(m,0x8500)==0x1234 &&
+            word(m,0x850c)==0xa545,"SECTRAN contract");
+    contract_call(m,0xc00c,'X'); // CONOUT preserves all registers including flags
+    require(word(m,0x8500)=='X' && word(m,0x8504)==0x789a &&
+            word(m,0x850c)==0xa545,"CONOUT contract");
+    require(screen(m).find("A>X")!=std::string::npos,"CONOUT character");
+    contract_call(m,0xc006,0x1234); // CONST without a pressed key
+    require(word(m,0x8500)==0x1234 && word(m,0x8504)==0x789a &&
+            (word(m,0x850c)>>8)==0,"CONST contract");
+    contract_call(m,5,0x120c); // BDOS version, C=12
+    require(word(m,0x8504)==0x22 && word(m,0x8500)==12 &&
+            (word(m,0x850c)>>8)==0x22,"BDOS result aliases / C preservation");
+    contract_call(m,5,0x12ff); // unsupported function returns zero
+    require(word(m,0x8504)==0 && word(m,0x8500)==255 &&
+            (word(m,0x850c)>>8)==0,"Unknown BDOS function contract");
+}
+
+// Each isolated case boots a fresh card; persistent output is checked by Python.
+static void program_test(P2000Machine &m,const std::string &name) {
+    if(name=="ABI") {
+        contract_tests(m);
+    } else if(name=="HELLO") {
+        type(m,"HELLO\n");prompt(m);
+        wait_text(m,"Hello from an original Z80");
+    } else if(name=="PIP") {
+        type(m,"PIP B:RESULT.BIN=A:PAYLOAD.BIN\n");prompt(m);
+    } else if(name=="COPY") {
+        type(m,"COPY A:PAYLOAD.BIN B:RESULT.BIN\n");prompt(m);
+        wait_text(m,"Copy complete.");
+    } else if(name=="COPYEXISTS") {
+        type(m,"COPY A:PAYLOAD.BIN B:RESULT.BIN\n");prompt(m);
+        wait_text(m,"Destination exists; use ERA first");
+    } else if(name=="ASM") {
+        type(m,"ASM TEST\n");prompt(m);wait_text(m,"END OF ASSEMBLY");
+    } else if(name=="LOAD") {
+        type(m,"LOAD TEST\n");prompt(m);
+        type(m,"TEST\n");prompt(m);wait_text(m,"ASM/LOAD OK");
+    } else if(name=="DUMP") {
+        type(m,"DUMP HEXTEST.BIN\n");prompt(m);
+        wait_text(m,"0000 00 01 02 03 04 05 06 07 08 09 0A 0B 0C 0D 0E 0F");
+        wait_text(m,"0070 70 71 72 73 74 75 76 77 78 79 7A 7B 7C 7D 7E 7F");
+    } else if(name=="DDT") {
+        type(m,"DDT\n");wait_text(m,"DDT VERS 2.2");frames(m,100);
+        for(unsigned i=0x4000;i<0x4006;++i)m.pokeMemory(i,0xa3);
+        type(m,"F4001,4004,5A\n");frames(m,100);
+        require(m.peekMemory(0x4000)==0xa3 && m.peekMemory(0x4005)==0xa3,"DDT fill crossed boundaries");
+        for(unsigned i=0x4001;i<=0x4004;++i)require(m.peekMemory(i)==0x5a,"DDT fill failed");
+        type(m,"G0\n");prompt(m);
+    } else if(name=="ED") {
+        type(m,"ED NOTES.TXT\n");wait_text(m,"NEW FILE");wait_text(m,": *");frames(m,50);
+        type(m,"I\nEDITED ON SD\n");type(m,std::string(1,27)+"Z");frames(m,500);
+        type(m,"E\n");prompt(m);
+    } else if(name=="STAT") {
+        type(m,"STAT\n");prompt(m);wait_text(m,"R/W, Space:");
+    } else if(name=="CPMTEST") {
+        m.pokeMemory(0x9000,0);type(m,"CPMTEST\n");
+        for(int i=0;i<1000 && m.peekMemory(0x9000)==0;++i)frames(m,200);
+        require(m.peekMemory(0x9000)==0xa5,"CPMTEST failed");prompt(m);wait_text(m,"CPMTEST PASS");
+    } else throw std::runtime_error("Unknown isolated program");
+    std::cout << "PASS: isolated " << name << std::endl;
+}
+
 int main(int argc,char **argv) {
     P2000Machine m;
     try {
-        require(argc==4,"Usage: cpm-test EMULATOR BUILD CARD");
+        require(argc==4 || argc==5,"Usage: cpm-test EMULATOR BUILD CARD [PROGRAM]");
         std::string error;
         require(m.loadMonitor(std::string(argv[1])+"/assets/roms/p2000.rom",&error),error);
         require(m.loadCartridge(std::string(argv[2])+"/cartridge.bin",&error),error);
@@ -115,6 +214,7 @@ int main(int argc,char **argv) {
         require(m.sdCartridge().insert(argv[3],false,&error),error);
         frames(m,700);
         require(screen(m).find("A>")!=std::string::npos,"Missing command prompt");
+        if(argc==5) {program_test(m,argv[4]);return 0;}
         type(m,"HELLO\n");frames(m,150);
         require(screen(m).find("Hello from an original Z80")!=std::string::npos,"HELLO did not execute");
         m.pokeMemory(0x9000,0);

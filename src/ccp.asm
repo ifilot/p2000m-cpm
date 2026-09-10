@@ -1,7 +1,48 @@
+; ============================================================================
+; src/ccp.asm -- source tour and calling conventions
+; ============================================================================
+; Interactive shell and COM loader. Related built-ins, loader paths and parser
+; helpers are kept together; local branch labels belong to their enclosing routine.
+;
+; Headers use Inputs / Outputs / Clobbers; unlisted registers are preserved.
+; Preservation applies to returning paths only.
+; "Clobbers" includes result registers and anything a called routine may alter.
+; AF includes flags; CY denotes carry (not the C register). SP is balanced
+; on returning paths unless stated. No routine uses the alternate register set.
+; Labels without a Routine header are local branches or data, not public calls.
+; See docs/source-guide.md for units, call flow and tests.
+;
 ; Original command processor: DIR, TYPE, ERA, REN, USER and transient COM files.
+
+; ============================================================================
+; COMMAND PROCESSOR: prompt, line input and dispatch
+; The CCP is resident above the TPA. Built-ins use BDOS just like transient
+; programs; only display helpers call the BIOS console directly.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_start
+; Print the optional sign-on banner and enter the prompt loop.
+;
+; Inputs:   System vectors and BDOS state initialized.
+; Outputs:  No return; falls into ccp_loop.
+; Clobbers: AF, BC, DE, HL, SP; console state.
+; ----------------------------------------------------------------------------
 ccp_start:
     ld hl,start_banner
     call ccp_puts
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_loop
+; Read, uppercase and dispatch a command line.
+;
+; Inputs:   current_drive selects the prompt; keyboard/console and BDOS available.
+; Outputs:  No return; commands loop back here or launch a transient program.
+; Clobbers: AF, BC, DE, HL, IY, SP; command buffers and default DMA.
+;
+; SP is reset so errors and program warm boots cannot leak command frames.
+; The original argument remainder is retained for the standard command tail.
+; ----------------------------------------------------------------------------
 ccp_loop:
     ld sp,0x9d00
     ld de,0x80
@@ -50,6 +91,17 @@ ccp_upper_next:
     ld c,14
     call bdos_entry
     jp ccp_loop
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_dispatch
+; Match an eight-character command name or load a COM file.
+;
+; Inputs:   command_fcb contains the first token; argument_text points at its delimiter.
+; Outputs:  No return; jumps to a built-in handler or ccp_load.
+; Clobbers: AF, BC, DE, HL.
+;
+; commands stores eight-byte padded names followed by two-byte code pointers.
+; ----------------------------------------------------------------------------
 ccp_dispatch:
     ld hl,commands
 ccp_compare_command:
@@ -77,6 +129,13 @@ ccp_compare_skip:
     ld de,10
     add hl,de
     jr ccp_compare_command
+
+; ============================================================================
+; BUILT-IN TABLE: eight-byte names followed by handler addresses
+; The trailing zero ends the table. Unknown names are treated as transient
+; program filenames, with COM supplied when no extension was typed.
+; ============================================================================
+
 commands:
     db 'DIR     '
     dw ccp_dir
@@ -91,11 +150,40 @@ commands:
     db 'SAVE    '
     dw ccp_save
     db 0
+
+; ============================================================================
+; FILE COMMANDS: argument parsing, DIR, ERA, TYPE and REN
+; The common FCB parser fills command_fcb, which is separate from the
+; application default FCBs at 005Ch and 006Ch.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_argument
+; Parse the command remainder into the work FCB.
+;
+; Inputs:   argument_text -> remainder of command line.
+; Outputs:  HL -> delimiter after token; command_fcb filled; CY=1 on bad syntax.
+; Clobbers: AF, BC, DE, HL, IY.
+;
+; Calls parse_fcb; it returns the delimiter so REN can recognize its equals sign.
+; ----------------------------------------------------------------------------
 ccp_argument:
     ld hl,(argument_text)
     ld de,command_fcb
     call parse_fcb
     ret
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_dir
+; List matching filenames using BDOS Search First/Next.
+;
+; Inputs:   argument_text -> command remainder; BDOS/DMA initialized.
+; Outputs:  No return; enters ccp_loop or ccp_error.
+; Clobbers: AF, BC, DE, HL, IY; command buffers and service-specific media.
+;
+; An omitted name becomes eleven question marks. The returned slot
+; selects one of the four 32-byte entries copied to the default DMA buffer.
+; ----------------------------------------------------------------------------
 ccp_dir:
     call ccp_argument
     jp c,ccp_error
@@ -147,6 +235,18 @@ ccp_dir_ext:
     ld c,18
     ld de,command_fcb
     jr ccp_dir_next
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_erase
+; Delete matching file entries with BDOS 19.
+;
+; Inputs:   argument_text -> command remainder; BDOS/DMA initialized.
+; Outputs:  No return; enters ccp_loop or ccp_error.
+; Clobbers: AF, BC, DE, HL, IY; command buffers and service-specific media.
+;
+; The FCB may contain wildcards. A missing/protected/error result goes
+; to the shared command error path; no direct disk operations occur here.
+; ----------------------------------------------------------------------------
 ccp_erase:
     call ccp_argument
     jp c,ccp_error
@@ -156,6 +256,18 @@ ccp_erase:
     inc a
     jp z,ccp_error
     jp ccp_loop
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_type
+; Display sequential text records until EOF or Ctrl-Z.
+;
+; Inputs:   argument_text -> command remainder; BDOS/DMA initialized.
+; Outputs:  No return; enters ccp_loop or ccp_error.
+; Clobbers: AF, BC, DE, HL, IY; command buffers and service-specific media.
+;
+; HL walks the 0080h DMA record; B counts its 128 bytes. Ctrl-Z is
+; the CP/M text terminator even when more padded bytes remain in the record.
+; ----------------------------------------------------------------------------
 ccp_type:
     call ccp_argument
     jp c,ccp_error
@@ -181,6 +293,18 @@ ccp_type_char:
     inc hl
     djnz ccp_type_char
     jr ccp_type_record
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_rename
+; Parse REN new=old and invoke BDOS 23.
+;
+; Inputs:   argument_text -> command remainder; BDOS/DMA initialized.
+; Outputs:  No return; enters ccp_loop or ccp_error.
+; Clobbers: AF, BC, DE, HL, IY; command buffers and service-specific media.
+;
+; The new 16-byte filename prefix is saved before parsing the old name.
+; Both names must specify the same drive; the new prefix goes at FCB+16.
+; ----------------------------------------------------------------------------
 ccp_rename:
     call ccp_argument
     jp c,ccp_error
@@ -213,6 +337,21 @@ ccp_rename:
     inc a
     jp z,ccp_error
     jp ccp_loop
+
+; ============================================================================
+; STATE/MEMORY COMMANDS: USER namespace and SAVE memory pages
+; USER accepts 0..15. SAVE counts 256-byte pages starting at 0100h and
+; writes them as pairs of 128-byte CP/M records without executing that memory.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_user
+; Parse a user number and select it through BDOS 32.
+;
+; Inputs:   argument_text -> decimal user 0..15.
+; Outputs:  No return; prompt on success or common error on invalid syntax.
+; Clobbers: AF, BC, DE, HL.
+; ----------------------------------------------------------------------------
 ccp_user:
     ld hl,(argument_text)
     call skip_spaces
@@ -242,6 +381,18 @@ ccp_user_set:
     ld c,32
     call bdos_entry
     jp ccp_loop
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_save
+; Save N pages of TPA memory to a newly created file.
+;
+; Inputs:   argument_text -> decimal page count, space, filename.
+; Outputs:  No return; file written then prompt, or ccp_error.
+; Clobbers: AF, BC, DE, HL, IY; command FCB, DMA and medium.
+;
+; DE accumulates decimal pages with a limit of 151. save_records is twice
+; that count, while load_address walks CPU memory in 128-byte increments.
+; ----------------------------------------------------------------------------
 ccp_save:
     ld hl,(argument_text)
     call skip_spaces
@@ -316,6 +467,24 @@ save_close:
     cp 0xff
     jp z,ccp_error
     jp ccp_loop
+
+; ============================================================================
+; TRANSIENT LOADER: FCB open, bounded COM load, page-zero arguments
+; The reported TPA is 0100h..97FFh. A final read at the limit uses a scratch
+; buffer to distinguish an exactly full COM file from an oversized one.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_load
+; Open a transient COM file and load its sequential records.
+;
+; Inputs:   command_fcb contains drive/name; argument_text still points to arguments.
+; Outputs:  No return; ccp_execute on EOF, ccp_error on open/read/size failure.
+; Clobbers: AF, BC, DE, HL; TPA, load_address, DMA and work FCB.
+;
+; No extension means COM. At address 9800h data goes to file_buffer
+; instead of system memory; receiving another record then rejects the program.
+; ----------------------------------------------------------------------------
 ccp_load:
     ld a,(command_fcb+9)
     cp ' '
@@ -354,6 +523,18 @@ ccp_load_dma:
     add hl,de
     ld (load_address),hl
     jr ccp_load_record
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_execute
+; Install default FCBs/command tail and enter the loaded program.
+;
+; Inputs:   A=last read status (must be EOF=1); loaded TPA and argument_text valid.
+; Outputs:  No return to this routine: JP 0100h; RET in the program reaches warm_boot.
+; Clobbers: AF, BC, DE, HL, IY, SP; page-zero FCBs/tail and default DMA.
+;
+; Only 16 bytes are cleared for the second default FCB: it overlaps the
+; first FCB allocation area. The return stack at 9A00h stays outside the TPA.
+; ----------------------------------------------------------------------------
 ccp_execute:
     cp 1
     jp nz,ccp_error
@@ -387,10 +568,34 @@ ccp_tail_done:
     push hl
     ld a,(current_drive)
     jp 0x100
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_error
+; Print the common command/file/I/O failure message.
+;
+; Inputs:   Entered by JP from any command failure path.
+; Outputs:  No return; enters ccp_loop, which resets SP.
+; Clobbers: AF, C, HL, then prompt-loop working registers.
+; ----------------------------------------------------------------------------
 ccp_error:
     ld hl,error_message
     call ccp_puts
     jp ccp_loop
+
+; ============================================================================
+; SHARED TEXT/PARSER HELPERS: strings, whitespace and CP/M FCB syntax
+; Public subroutine headers below describe callable entry points. The
+; parse_* branch labels inside the parser are local control-flow continuations.
+; ============================================================================
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_puts
+; Print a NUL-terminated string through the BIOS console.
+;
+; Inputs:   HL -> string.
+; Outputs:  HL points at the terminating zero; Z=1, A=0.
+; Clobbers: AF, C, HL; B, DE, IX, IY preserved.
+; ----------------------------------------------------------------------------
 ccp_puts:
     ld a,(hl)
     or a
@@ -399,11 +604,31 @@ ccp_puts:
     call console_output
     inc hl
     jr ccp_puts
+
+; ----------------------------------------------------------------------------
+; Routine: ccp_newline
+; Output CR followed by LF.
+;
+; Inputs:   No inputs.
+; Outputs:  C=10; cursor moves to the next line start.
+; Clobbers: C only; flags and other registers preserved.
+; ----------------------------------------------------------------------------
 ccp_newline:
     ld c,13
     call console_output
     ld c,10
     jp console_output
+
+; ----------------------------------------------------------------------------
+; Routine: skip_spaces
+; Advance a text pointer past ASCII spaces.
+;
+; Inputs:   HL -> text.
+; Outputs:  HL -> first non-space; A = that character; Z=0 on return.
+; Clobbers: AF, HL.
+;
+; Only spaces are skipped, not tabs or other controls.
+; ----------------------------------------------------------------------------
 skip_spaces:
     ld a,(hl)
     cp ' '
@@ -411,9 +636,33 @@ skip_spaces:
     inc hl
     jr skip_spaces
 ; Parse an 8.3 token at HL into FCB DE, returning HL at its delimiter.
+
+; ----------------------------------------------------------------------------
+; Routine: parse_fcb
+; Parse an optional drive and 8.3 token into a full FCB.
+;
+; Inputs:   HL -> command text; DE -> writable 36-byte FCB.
+; Outputs:  HL -> delimiter; IY -> FCB; CY=0 success, CY=1 on rejected syntax.
+; Clobbers: AF, BC, DE, HL, IY; all 36 FCB bytes.
+;
+; Initial zeroing clears extents, allocation and random fields; the
+; name/type are space-padded. A star fills the rest of its field with question marks.
+; ----------------------------------------------------------------------------
 parse_fcb:
     ld b,36
     jr parse_clear
+
+; ----------------------------------------------------------------------------
+; Routine: parse_fcb_short
+; Parse the second default FCB without clearing past its 16-byte prefix.
+;
+; Inputs:   HL -> next token; DE -> 16-byte destination prefix.
+; Outputs:  As parse_fcb, but clears only the prefix.
+; Clobbers: AF, BC, DE, HL, IY; destination prefix.
+;
+; Shares parse_clear. This avoids overwriting the command tail/DMA area
+; when the second default FCB starts at 006Ch.
+; ----------------------------------------------------------------------------
 parse_fcb_short:
     ld b,16
 parse_clear:
@@ -505,6 +754,13 @@ parse_extension:
 parse_bad:
     scf
     ret
+
+; ============================================================================
+; RESIDENT CCP DATA: messages, command buffer and private FCB
+; All of these bytes are outside the advertised application TPA. The
+; command buffer reserves a count byte and room for the terminating NUL.
+; ============================================================================
+
 start_banner: db 'P2000M SD CP/M 2.2 - A: B: SD, C: 128 KiB RAM',13,10,0
 error_message: db 'Error: command, file or disk operation failed',13,10,0
 com_extension: db 'COM'
