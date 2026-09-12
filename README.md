@@ -12,6 +12,16 @@ The supplied SD image includes the command processor, PIP, ASM, LOAD, DDT,
 DUMP, ED, STAT, Microsoft BASIC-80, BDS C, Zork I–III, diagnostics, and twelve
 drives. Drive L: is a temporary 128 KiB SRAM disk; the other drives live on SD.
 
+## Screenshots
+
+Boot dashboard, captured from the emulator:
+
+![CP/M boot dashboard with system status and twelve drives](docs/screenshots/boot.png)
+
+Running DIR, HELLO, and STAT:
+
+![CP/M command session listing files, printing a greeting, and reporting free disk space](docs/screenshots/session.png)
+
 ## Download
 
 Download the matching files from the

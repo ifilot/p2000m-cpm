@@ -9,8 +9,9 @@ Run `python3 tools/preview_boot.py` to generate six previews in
 `build/boot-previews/`: loading, ready after recovery, failed initialization,
 and a future six-drive layout (`expanded`), plus twelve-drive three-column
 (`grid3`) and two-column (`grid2`) alternatives.
-The renderer requires Pillow and defaults to the sibling emulator's character
-ROMs; `--charrom-dir` can override that location.
+The renderer requires Pillow and defaults to the bundled `assets/charrom`
+files; `--charrom-dir` can override that location. For actual emulator captures,
+see the [screenshot guide](screenshots/README.md).
 
 ## Rendering accuracy
 

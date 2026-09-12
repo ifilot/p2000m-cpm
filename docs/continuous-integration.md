@@ -33,5 +33,5 @@ Zork COM/DAT files are bundled in `assets/zork` and copied unchanged into drive
 C: of the SD image. Their [provenance](../assets/zork/README.md) records the
 source revision. Builds and tests use only files from this repository; CI still
 installs the compiler and assembler through the runner's package manager.
-The optional boot-preview image renderer still
-uses the sibling emulator's character ROMs; it is not part of CI or testing.
+The optional screenshot and boot-preview renderers use bundled character ROMs
+and require Pillow; they are not part of CI or testing.

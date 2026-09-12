@@ -444,4 +444,5 @@ int main(int argc,char **argv) {
         for(int row=0;row<24;++row) std::cerr << screen(m).substr(row*80,80) << '\n';
         return 1;
     }
+    return 0;
 }

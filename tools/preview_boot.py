@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Render proposed boot screens, not firmware captures, with the P2000M ROM font.
 
-Requires Pillow and the sibling emulator's character ROMs. No firmware or SD
+Requires Pillow and the bundled character ROMs. No firmware or SD
 image is changed. Text and attribute dumps accompany each PNG for inspection.
 """
 import argparse
@@ -135,7 +135,7 @@ def main():
     from PIL import Image
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--charrom-dir', type=Path, default=
-                        ROOT.parent / 'p2000m-emulator/assets/charrom')
+                        ROOT / 'assets/charrom')
     parser.add_argument('--output', type=Path, default=ROOT / 'build/boot-previews')
     args = parser.parse_args()
     font = (args.charrom_dir / 'p2000m_charrom_upper.bin').read_bytes()
