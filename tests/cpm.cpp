@@ -18,10 +18,12 @@ static void type(P2000Machine &m,const std::string &s) {
     const std::string matrix =
         " 6 Q3574" " HZSDGJF" "   0# , " " N<XCBMV" " YAWETUR" " 9*/ 01-" "9O87 P8@" "3.21]/K2" "6L54=;I:";
     for(char c:s) {
-        const bool shifted=c>='A' && c<='Z';
+        bool shifted=c>='A' && c<='Z';
+        if(c=='"') shifted=true;
         if(c>='a' && c<='z') c-=32;
         unsigned pos=0;
-        if(c=='\n') pos=6*8+4;
+        if(c=='"') pos=7*8+7;
+        else if(c=='\n') pos=6*8+4;
         else if(c==' ') pos=2*8+1;
         else if(c==27) pos=4*8;
         else {
@@ -34,11 +36,11 @@ static void type(P2000Machine &m,const std::string &s) {
         m.setKey(9,0,false);frames(m,2);
     }
 }
-static void prompt(P2000Machine &m) {
+static void prompt(P2000Machine &m, char drive='A') {
     for(int i=0;i<300;++i) {
         auto s=screen(m);
         auto end=s.find_last_not_of(" ");
-        if(end!=std::string::npos && end>0 && s.substr(end-1,2)=="A>") return;
+        if(end!=std::string::npos && end>0 && s.substr(end-1,2)==std::string(1,drive)+">") return;
         frames(m,100);
     }
     throw std::runtime_error("Command did not return to CCP");
@@ -46,6 +48,15 @@ static void prompt(P2000Machine &m) {
 static void wait_text(P2000Machine &m,const std::string &text) {
     for(int i=0;i<300 && screen(m).find(text)==std::string::npos;++i) frames(m,100);
     require(screen(m).find(text)!=std::string::npos,"Missing text: "+text);
+}
+static void basic_prompt(P2000Machine &m) {
+    for(int i=0;i<300;++i) {
+        auto s=screen(m);
+        auto end=s.find_last_not_of(" ");
+        if(end!=std::string::npos && end>0 && s.substr(end-1,2)=="Ok") return;
+        frames(m,100);
+    }
+    throw std::runtime_error("BASIC did not return to Ok prompt");
 }
 static unsigned bdos(P2000Machine &m,unsigned fn,unsigned arg=0) {
     const unsigned char code[]={
@@ -311,10 +322,36 @@ static void program_test(P2000Machine &m,const std::string &name) {
         m.setKey(4,0,true);frames(m,300); // Escape prefix, held across I/O.
         m.setKey(4,0,false);frames(m,300);
         m.setKey(3,4,true); // C -> Ctrl-C through the console escape prefix.
-        for(int i=0;i<100 && m.peekMemory(0x9000)==0;++i)frames(m,100);
+        // Release promptly on cancellation so key repeat cannot scroll away
+        // the result with further Ctrl-C warm boots at the command prompt.
+        for(int i=0;i<10000 && m.peekMemory(0x9000)==0;++i)frames(m,1);
         m.setKey(3,4,false);
         require(m.peekMemory(0x9000)==0xcc,"CPMTEST did not abort between records");
         prompt(m);wait_text(m,"CPMTEST ABORTED");
+    } else if(name=="MBASIC") {
+        type(m,"E:\n");prompt(m,'E');
+        type(m,"MBASIC BASDEMO\n");wait_text(m,"Sum of squares 1..10 = 385");
+        basic_prompt(m);type(m,"SYSTEM\n");prompt(m,'E');
+        type(m,"MBASIC BASCHK\n");prompt(m,'E');
+        wait_text(m,"BASIC EXECUTION PASS");
+        type(m,"MBASIC\n");basic_prompt(m);
+        type(m,"10 PRINT 6*7\n");frames(m,100);
+        type(m,"SAVE \"SAVED\",A\n");basic_prompt(m);
+        type(m,"NEW\n");basic_prompt(m);
+        type(m,"LOAD \"SAVED\"\n");basic_prompt(m);
+        type(m,"RUN\n");basic_prompt(m);
+        wait_text(m," 42 ");
+        type(m,"SYSTEM\n");prompt(m,'E');
+    } else if(name=="BDSC") {
+        type(m,"B:\n");prompt(m,'B');
+        type(m,"CC CDEMO\n");prompt(m,'B');
+        type(m,"CLINK CDEMO\n");prompt(m,'B');
+        type(m,"CDEMO\n");prompt(m,'B');
+        wait_text(m,"Sum of squares 1..10 = 385");
+        type(m,"CC CCHK\n");prompt(m,'B');
+        type(m,"CLINK CCHK\n");prompt(m,'B');
+        type(m,"CCHK\n");prompt(m,'B');
+        wait_text(m,"BDS C EXECUTION PASS 385");
     } else if(name=="ZORK1" || name=="ZORK2" || name=="ZORK3") {
         type(m,"C:\n");frames(m,50);
         type(m,name+"\n");

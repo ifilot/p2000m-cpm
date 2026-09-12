@@ -39,22 +39,24 @@ Its status cursor uses scratch DBD0h–DBD1h. ROM errors replace the activity ro
 (18, zero-based), with command/response details on row 19. The dashboard has
 metadata on rows 1–2, TPA capacity on row 3, card identity on rows 9–10,
 the drive grid on rows 13–16 and the prompt on row 20. E00C prints a string
-at a fixed position; E00F replaces the activity row. The kernel checks the UI
+at a fixed position; E00F replaces the activity row. These are boot-only services
+implemented in the disposable RAM loader. The kernel checks the UI
 ABI signature at E012 before calling these new services. Inverse attributes
 scroll with text and are reset for application output. The E000/E003/E006/E009 jump
 vectors and kernel placement remain fixed.
 
-Initialization retries the complete CMD0/CMD8/ACMD41/CMD58 sequence up to eight
+Initialization retries the complete CMD0/CMD8/CMD59/CMD55/ACMD41/CMD58 sequence up to eight
 times, with approximately 500 ms at 2.5 MHz between attempts. Command readiness
 polling is bounded at 65535 bytes (skipped for CMD0 recovery); response polling
 is bounded at 256 bytes. The 1000 ACMD41 attempts have at least 1 ms spacing.
 The attempt counter is at DBD2h, the boot-display flag at DBD3h, the three-pass
 content-validation budget at DBD4h, and last-command/response bytes at
 DBD5h–DBD6h; CID bytes occupy DBE0h–DBEFh during boot. CMD10 reads a 16-byte
-CID data block and consumes its trailing CRC bytes; byte zero is the MID,
+CID data block and validates its trailing CRC16; byte zero is the MID,
 as defined by the [SD Association physical-layer specification](https://www.sdcard.org/cms/wp-content/themes/sdcard-org/dl.php?f=Part1_Physical_Layer_Simplified_Specification_Ver6.00.pdf).
-MID, OEM, product and serial are shown for debugging; the full CID remains in scratch; CRC is consumed, not validated, and
-an unavailable CID is nonfatal. Retries do not reset the co-board or CPU and
+MID, OEM, product and serial are shown for debugging; the full CID remains in
+scratch. An unavailable or CRC-invalid CID is nonfatal and its identity fields
+are not displayed. Retries do not reset the co-board or CPU and
 do not reformat the card. The E003h read entry retries three times, reinitializing
 between failed reads while retaining the requested LBA and destination. This
 covers header/kernel/MBR and runtime reads. Boot header, signature or checksum
@@ -62,17 +64,36 @@ failures restart the load for at most three passes. Recovery output is enabled
 until BIOS disk initialization completes, then disabled for applications.
 The write entry remains synchronous and is never automatically replayed.
 
-The resident loader initializes SDHC SPI mode using CMD0, CMD8, CMD55/ACMD41
+The SD driver initializes SDHC SPI mode using CMD0, CMD8, CMD59, CMD55/ACMD41,
 and CMD58. It reads the system header at LBA 15 and loads 28 sectors from LBA 16
 into A000–D7FF. It validates the header, kernel size, kernel signature and
 16-bit additive checksum before executing A000. Missing/unresponsive cards,
 invalid signatures, and checksum errors produce `SD BOOT ERROR` and halt.
 Polling loops are bounded. The additive checksum detects accidental corruption;
-it is not an authentication mechanism. SD data CRC is disabled in SPI mode.
+it is not an authentication mechanism.
+
+The SD driver generates CRC7 (polynomial 09h, zero initial value, MSB first)
+over every command's five bytes, then appends the end bit. CMD59 with argument
+1 is mandatory before ACMD41 on every initialization, including recovery after CMD0;
+the expected CMD59 response is 01h (still idle). There
+is no fallback to unchecked communication. All 512-byte sector transfers and
+the 16-byte CID block use CRC16 (polynomial 1021h, zero initial value, no final
+XOR, high byte first on the wire). CRC16 is folded one byte at a time without
+a lookup table or additional RAM state.
+
+A read CRC mismatch returns failure before the cache can mark the sector
+valid. Both CRC bytes are consumed, and the existing three-attempt read path
+reinitializes the card between attempts. The diagnostic response byte is 08h
+for a locally detected read CRC mismatch. Writes send a calculated CRC16 and
+still require an accepted data-response token and completion of busy polling.
+The actual write-response token is retained for diagnosis (0Bh means CRC
+rejection). Failed writes are not automatically replayed; dirty cache data and
+dependent metadata remain available for explicit retry. CRC does not provide
+authentication, persistent file checksums, or write-readback verification.
 
 The exact runtime map is documented in [memory-budget.md](memory-budget.md)
-and defined by `src/memory.inc`. The TPA is 0100–CCFF (51 KiB).
-The packed RAM system starts at CD00; the filesystem engine occupies always-
+and defined by `src/memory.inc`. The TPA is 0100–CAFF (50.5 KiB).
+The packed RAM system starts at CB00; the filesystem engine occupies always-
 mapped ROM E800–EFBC. Buffers and all ROM/BDOS scratch remain outside the TPA.
 The 14 KiB load image stops at D800 so it never overwrites active ROM state.
 Cold boot initializes runtime buffers separately, preserving the ROM scratch.
@@ -81,7 +102,7 @@ by applications. BIOS BOOT flushes and returns through the stock monitor to
 recreate them; WBOOT stays resident and preserves the RAM drive.
 
 Applications enter at 0100. Location 0000 jumps to BIOS warm boot; location
-0005 jumps directly to the BDOS entry at CD00. BDOS uses a private stack and returns results
+0005 jumps directly to the BDOS entry at CB00. BDOS uses a private stack and returns results
 in HL and A/B. The command processor stays resident above the reported TPA
 limit, so warm boot need not reload it or overwrite the RAM drive. Warm boot
 restores the command processor's drive from page zero. SD writes are buffered;
@@ -196,6 +217,29 @@ Functions 38–39 return zero. Reader input returns EOF; unconnected list/punch
 output is discarded. The API is based on the
 [Digital Research system-interface documentation](https://www.cpm.z80.de/manuals/archive/cpm22htm/ch5.htm).
 
+Allocation pointers are checked against reserved directory blocks and the
+selected medium's block count before address arithmetic. Physical filesystem
+I/O errors and invalid nonzero allocation pointers print a BDOS hard error
+and warm-boot; they cannot masquerade as ordinary EOF or file-not-found.
+Direct BIOS calls retain their error-return contract. Dirty cache data is
+retained if warm-boot flushing fails. This is detection, not directory repair.
+Missing-extent writes check the existing file's on-disk read-only attribute,
+even when the caller supplies a fresh FCB. OPEN selects by EX/S2, preserves CR,
+and binds wildcard names to the matched file. Search with DR='?' returns raw
+directory entries, including free slots and other users. SELECT logs in the
+selected drive immediately.
+
+Cooked BDOS console calls support Ctrl-S pause and Ctrl-Q resume; Ctrl-C while
+paused warm-boots. Direct function 6 remains raw. Buffered input supports TAB,
+Ctrl-E physical newline, Ctrl-R redraw, Ctrl-U/X line deletion, and BS/DEL
+across expanded tabs and display rows. Ctrl-C warm-boots on an empty line and
+is retained as a character mid-line. Other control bytes echo in caret form.
+These paths are covered by `tests/bdos_conformance.cpp` on SD and SRAM media.
+
+The built-in software-timed RS232 port is documented and exercised by three
+standalone programs; see [serial hardware testing](serial-testing.md).
+It is not yet connected to BIOS peripheral device routing.
+
 Normal writes stage data, extent lengths and allocation pointers in the cache.
 Close commits pending data before metadata and confirms the file exists;
 it returns an error if the commit fails.
@@ -256,7 +300,8 @@ installed in drive A: of the deliverable. Tests verify each installed binary
 byte-for-byte, run the utilities, and compare DUMP's first and last output rows
 against a known 128-byte input file. Source provenance and hashes are recorded
 in [the collection README](../assets/cpm_core/README.md).
-Monitor ROM and emulator CPU/device code remain in the referenced checkout.
+Monitor ROM and emulator CPU/device code are bundled in `tests/emulator`;
+see its [provenance and update guide](../tests/emulator/README.md).
 The preceding 16 KiB cartridge build was reported to boot on real hardware.
 The 0.3.0 ROM/RAM relocation and diagnostics are emulator-tested and await a hardware
 trial; physical SD timings and full hardware storage tests remain unverified.

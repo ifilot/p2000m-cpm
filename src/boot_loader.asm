@@ -35,9 +35,6 @@ boot_load_start:
     ld a,1
     ld (boot_attempt),a
 boot_sd_retry:
-    ld a,(boot_attempt)
-    add a,'0'
-    ld (0xf381+msg_attempt-msg_sd),a
     call sd_init
     or a
     jr z,boot_sd_ready
@@ -51,11 +48,6 @@ boot_sd_retry:
     jr boot_sd_retry
 boot_sd_ready:
     ld hl,msg_ready_status
-    ld a,(boot_attempt)
-    cp 1
-    jr z,boot_sd_status
-    ld hl,msg_recovered_status
-boot_sd_status:
     ld de,0xf3b1
     call boot_message
     call boot_cid
@@ -241,8 +233,7 @@ boot_digits:
     ret
 msg_mapped: db 'RAM enabled  /  RAM loader 7000                 ',0
 msg_init_activity: db '  INITIALIZING SD  /  reset and SPI negotiation',0
-msg_sd: db 'SPI mode  /  attempt '
-msg_attempt: db '1/8',0
+msg_sd: db 'SPI mode',0
 msg_header: db '  CHECKING SYSTEM HEADER  /  SD sector 15',0
 msg_load: db '  LOADING KERNEL  /  SD 16-43 -> A000-D7FF   '
 msg_load_count: db '00/28 sectors',0
@@ -252,7 +243,6 @@ msg_verified: db 'A000-D7FF  /  signature + checksum               ',0
 msg_ready_status: db '          OK',0
 msg_starting_status: db '    STARTING',0
 msg_loading_status: db '     LOADING',0
-msg_recovered_status: db '   RECOVERED',0
 
 ; CMD10 returns the 16-byte CID; byte 0 is the manufacturer ID (MID).
 ; Keep this on row 10; the BIOS begins its console log on row 11.
@@ -286,14 +276,16 @@ boot_cid_fail:
 boot_cid_read:
     ld hl,rom_workspace+0x20
     ld b,16
+    ld de,0
 boot_cid_byte:
     call spi_rx
     ld (hl),a
+    call sd_crc16_byte
     inc hl
     djnz boot_cid_byte
-    call spi_rx
-    call spi_rx
+    call sd_crc16_check
     call sd_close
+    jr nz,boot_cid_fail
     ld de,0xf2e5        ; row 9 column 21, after 'MID '
     ld a,(rom_workspace+0x20)
     call boot_hex
@@ -353,10 +345,51 @@ boot_hex_store:
     ld (de),a
     inc de
     ret
-c10: db 0x4a,0,0,0,0,1
+c10: db 0x4a,0,0,0,0
 msg_cid_wait: db '  READING CARD IDENTITY  /  CMD10',0
 msg_cid_missing: db 'CID unavailable (CMD10 failed)                 ',0
 msg_cid_failed_status: db ' UNAVAILABLE',0
 
 msg_recovery: db '  Last command: 0x',0
 msg_response: db ' response 0x',0
+
+; Boot-only display lives in disposable RAM, leaving mapped ROM for SD CRC.
+boot_message:
+    ld a,(hl)
+    or a
+    jr z,boot_message_end
+    ld (de),a
+    inc hl
+    inc de
+    jr boot_message
+boot_message_end:
+    ld (boot_status),de
+    ret
+boot_ok:
+    ret
+boot_activity:
+    push hl
+    ld hl,0xf5a0
+    ld de,0xf5a1
+    ld bc,79
+    ld (hl),' '
+    ldir
+    pop hl
+    ld de,0xf5a1
+    jp boot_message
+loader_recovery:
+    push bc
+    push de
+    push hl
+    ld hl,(boot_status)
+    push hl
+    ld hl,msg_retry_status
+    ld de,0xf3b1
+    call boot_message
+    pop hl
+    ld (boot_status),hl
+    pop hl
+    pop de
+    pop bc
+    ret
+msg_retry_status: db '    RETRYING',0

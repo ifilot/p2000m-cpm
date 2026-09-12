@@ -26,7 +26,7 @@ class AssemblyConservation(unittest.TestCase):
             for source, expected in BASELINE['artifacts'].items():
                 with self.subTest(source=source):
                     output = Path(tmp) / 'assembled.bin'
-                    subprocess.run(['z80asm', '-I', str(ROOT / 'src'), '-I', str(ROOT / 'programs'),
+                    subprocess.run(['z80asm', '-I', str(ROOT / 'src'), '-I', str(ROOT / 'programs/common'),
                                     '-I', str(fixture_root / 'build/generated'), '-o',
                                     str(output), str(ROOT / source)], check=True,
                                    capture_output=True)

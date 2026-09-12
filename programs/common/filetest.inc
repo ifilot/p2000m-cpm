@@ -1,5 +1,5 @@
 ; ============================================================================
-; programs/cpmtest.asm -- source tour and calling conventions
+; programs/common/filetest.inc -- source tour and calling conventions
 ; ============================================================================
 ; Headers use Inputs / Outputs / Clobbers; unlisted registers are preserved.
 ; Preservation applies to returning paths only.

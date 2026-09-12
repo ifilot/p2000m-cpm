@@ -5,6 +5,8 @@ function: equ bdos_workspace+0x04  ; byte: current BDOS function number
 current_drive: equ bdos_workspace+0x05  ; byte: default drive, A=0/B=1/C=2
 user_number: equ bdos_workspace+0x06  ; byte: current CP/M user area 0..15
 user_dma: equ bdos_workspace+0x07  ; word: application 128-byte transfer buffer
+line_column: equ bdos_workspace+0x09 ; byte: initial physical column for line editing
+line_anchor: equ bdos_workspace+0x0a ; byte: buffer index at physical line start
 read_only: equ bdos_workspace+0x34  ; word: logical write-protection bitmask A..P
 logged: equ bdos_workspace+0x36  ; word: logged-in drive bitmask A..P
 fs_drive: equ bdos_workspace+0x0b  ; byte: drive selected for current FCB

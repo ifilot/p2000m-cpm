@@ -96,6 +96,9 @@ cold_restart:
 ; ----------------------------------------------------------------------------
 warm_boot:
     ld sp,system_stack_top
+    ; Applications may return after a bare CR or without a final newline.
+    call ccp_newline
+warm_start:
     call keyboard_enable
 warm_flush:
     call cache_flush

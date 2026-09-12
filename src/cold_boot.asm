@@ -4,7 +4,7 @@
 ; Initialize a newly SD-loaded system and enter the command processor.
 ;
 ; Inputs:   ROM has verified/loaded the kernel; co-board mapping is active.
-; Outputs:  No return: jumps to warm_boot on success, kernel_error otherwise.
+; Outputs:  No return: jumps to warm_start on success, kernel_error otherwise.
 ; Clobbers: AF, BC, DE, HL, SP; system state and all 128 KiB of cartridge SRAM.
 ;
 ; LDIR clears runtime BSS except the ROM workspace. Page-zero IOBYTE and saved command drive
@@ -28,7 +28,7 @@ cold_boot:
     xor a
     ld (3),a
     ld (4),a
-    ld hl,kernel_build_text
+    ld hl,kernel_pair_text
     ld de,0xf0a1
     call 0xe00c
     ld hl,kernel_tpa_text
@@ -60,7 +60,7 @@ cold_boot:
     ld a,1
     ld (column),a
 
-    jp warm_boot
+    jp warm_start       ; initial dashboard already positions the prompt
 
 ; ----------------------------------------------------------------------------
 ; Routine: disk_initialize

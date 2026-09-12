@@ -131,8 +131,8 @@ org 0xe000
     jp sd_read
     jp sd_write
     jp sd_init
-    jp boot_message        ; E00C: HL=NUL text, DE=video destination
-    jp boot_activity       ; E00F: HL=text, replace activity row (18)
+    jp boot_message        ; E00C: boot only; HL=NUL text, DE=video destination
+    jp boot_activity       ; E00F: boot only; HL=text, replace activity row (18)
     db 'P2MUI03',0          ; E012: dashboard ABI guard for the SD kernel
     include 'link_id.inc'  ; E01A: 16-byte RAM/ROM cross-link fingerprint
 
@@ -155,54 +155,14 @@ boot_active: equ rom_workspace+0x13
 boot_load_budget: equ rom_workspace+0x14
 sd_last_command: equ rom_workspace+0x15
 sd_last_response: equ rom_workspace+0x16
-boot_message:
-    ld a,(hl)
-    or a
-    jr z,boot_message_end
-    ld (de),a
-    inc hl
-    inc de
-    jr boot_message
-boot_message_end:
-    ld (boot_status),de
-    ret
-boot_ok:
-    ret
-; Replace only the activity row. BIOS and ROM use this same fixed region.
-boot_activity:
-    push hl
-    ld hl,0xf5a0
-    ld de,0xf5a1
-    ld bc,79
-    ld (hl),' '
-    ldir
-    pop hl
-    ld de,0xf5a1
-    jp boot_message
-; Report recovery only during boot; retain the main stage's append cursor.
-; Preserve caller registers/flags, including pending error strings and budgets.
+; Never enter disposable display code after applications own the loader RAM.
 boot_recovery:
     push af
-    push bc
-    push de
-    push hl
     ld a,(boot_active)
     or a
-    jr z,boot_recovery_done
-    ld hl,(boot_status)
-    push hl
-    ld hl,msg_retry_status
-    ld de,0xf3b1
-    call boot_message
-    pop hl
-    ld (boot_status),hl
-boot_recovery_done:
-    pop hl
-    pop de
-    pop bc
+    call nz,loader_recovery
     pop af
     ret
-msg_retry_status: db '    RETRYING',0
 
 ; Roughly 500 ms at 2.5 MHz. No clocks while deselected; preserve registers.
 sd_retry_pause:
@@ -319,20 +279,20 @@ sd_ok:
     xor a
     ret
 
-; HL points to six command bytes. CS remains asserted for data phase.
+; HL points to five command bytes. CS remains asserted for data phase.
 
 ; ============================================================================
 ; SD COMMANDS: packet/reply handling and SDHC initialization
-; Commands are six bytes: command number with bit 6 set, four big-endian
-; argument bytes, and CRC/end bit. Data commands keep CS asserted for payload.
+; Templates hold command and four argument bytes. CRC7 and the end bit are
+; generated for every command. Data commands keep CS asserted for payload.
 ; ============================================================================
 
 ; ----------------------------------------------------------------------------
 ; Routine: sd_command
-; Send a prepared command and poll for its R1 response.
+; Send a command with CRC7 and poll for its R1 response.
 ;
-; Inputs:   HL -> six-byte command packet.
-; Outputs:  A = R1 response, or last byte on timeout; HL advanced by six; CS selected.
+; Inputs:   HL -> five-byte command packet.
+; Outputs:  A = R1 response, or last byte on timeout; HL advanced by five; CS selected.
 ; Clobbers: AF, B, HL; C, DE, IX, IY preserved.
 ;
 ; B counts packet bytes, then the bounded reply poll. R1 has bit 7 clear;
@@ -365,12 +325,25 @@ cmd_ready_wait:
 cmd_ready_pop:
     pop bc
 cmd_ready:
-    ld b,6
+    push bc
+    push de
+    ld e,0
+    ld b,5
 cmd_send:
+    push bc
+    ld a,(hl)
+    call sd_crc7_byte
+    pop bc
     ld a,(hl)
     call spi_tx
     inc hl
     djnz cmd_send
+    ld a,e
+    or 1
+cmd_crc:
+    call spi_tx
+    pop de
+    pop bc
     ld b,0                 ; up to 256 response bytes
 cmd_reply:
     call spi_rx
@@ -389,7 +362,8 @@ cmd_reply:
 ; Clobbers: AF, BC, DE, HL.
 ;
 ; CMD8 checks the echo pattern. DE counts ACMD41 attempts; CMD58 checks
-; OCR ready and CCS bits, rejecting byte-addressed SDSC cards.
+; OCR ready and CCS bits, rejecting byte-addressed SDSC cards. CMD59 enables
+; command/data CRC checking before ACMD41; rejection fails without fallback.
 ; ----------------------------------------------------------------------------
 sd_init:
     call sd_close
@@ -416,6 +390,10 @@ power_clocks:
     jp nz,sd_fail
     call spi_rx
     cp 0xaa
+    jp nz,sd_fail
+    ld hl,c59
+    call sd_command
+    cp 1                         ; CRC enabled while the card is still idle
     jp nz,sd_fail
     ld de,1000
 init_wait:
@@ -449,11 +427,12 @@ init_ocr:
     call spi_rx
     call spi_rx
     jp sd_ok
-c0: db 0x40,0,0,0,0,0x95
-c8: db 0x48,0,0,1,0xaa,0x87
-c55: db 0x77,0,0,0,0,1
-c41: db 0x69,0x40,0,0,0,1
-c58: db 0x7a,0,0,0,0,1
+c0: db 0x40,0,0,0,0
+c8: db 0x48,0,0,1,0xaa
+c55: db 0x77,0,0,0,0
+c41: db 0x69,0x40,0,0,0
+c58: db 0x7a,0,0,0,0
+c59: db 0x7b,0,0,0,1
 
 ; ----------------------------------------------------------------------------
 ; Routine: block_command
@@ -477,8 +456,6 @@ block_arg:
     dec hl
     inc de
     djnz block_arg
-    ld a,1
-    ld (de),a
     ld hl,command_packet
     jp sd_command
 
@@ -497,7 +474,7 @@ block_arg:
 ; Clobbers: AF, BC, DE, HL; destination bytes and command_packet.
 ;
 ; BC first bounds token polling, then counts 512 payload bytes. FEh is
-; the start token; two trailing CRC bytes are consumed but not validated.
+; the start token; CRC16 must match before success is returned to the cache.
 ; ----------------------------------------------------------------------------
 sd_read:
     ld a,3
@@ -537,16 +514,18 @@ read_wait:
 read_payload:
     ld hl,(buffer_ptr)
     ld bc,512
+    ld de,0
 read_byte:
     call spi_rx
     ld (hl),a
+    call sd_crc16_byte
     inc hl
     dec bc
     ld a,b
     or c
     jr nz,read_byte
-    call spi_rx
-    call spi_rx
+    call sd_crc16_check
+    jp nz,sd_crc_fail
     jp sd_ok
 
 ; ----------------------------------------------------------------------------
@@ -569,7 +548,10 @@ sd_write:
     call spi_tx
     ld hl,(buffer_ptr)
     ld bc,512
+    ld de,0
 write_byte:
+    ld a,(hl)
+    call sd_crc16_byte
     ld a,(hl)
     call spi_tx
     inc hl
@@ -577,9 +559,13 @@ write_byte:
     ld a,b
     or c
     jr nz,write_byte
+    ld a,d
+write_crc:
+    call spi_tx
+    ld a,e
+    call spi_tx
     call spi_rx
-    call spi_rx
-    call spi_rx
+    ld (sd_last_response),a
     and 0x1f
     cp 5
     jp nz,sd_fail
@@ -593,6 +579,34 @@ write_wait:
     or c
     jr nz,write_wait
     jp sd_fail
+; CRC7 accumulator E uses bits 7..1; polynomial x^7+x^3+1, initial zero.
+; A=input byte; clobbers AF/B/E, preserves C/D/HL.
+sd_crc7_byte:
+    xor e
+    ld b,8
+crc7_bit:
+    add a,a
+    jr nc,crc7_next
+    xor 0x12
+crc7_next:
+    djnz crc7_bit
+    ld e,a
+    ret
+
+; Consume both wire CRC bytes, including on mismatch. Z=valid; clobbers AF/DE.
+sd_crc16_check:
+    call spi_rx
+    xor d
+    ld d,a
+    call spi_rx
+    xor e
+    or d
+    ret
+sd_crc_fail:
+    ld a,8               ; CRC error bit, also used in SD R1 responses
+    ld (sd_last_response),a
+    jp sd_fail
+
 ; Always-mapped filesystem code. Its state and buffers remain in RAM.
 rom_restart:
     ; BIOS BOOT after a full-size COM must return through the stock monitor.
@@ -619,8 +633,8 @@ restart_switch_end:
 rom_driver_end:
 include 'cache.asm'
 include 'console.asm'
-include 'rom_tables.asm'
 include 'disk_io.asm'
+include 'rom_tables.asm'
 rom_runtime_end:
 defs 0xe7fe-$,0
 keyboard_vector: dw keyboard_interrupt
@@ -629,6 +643,8 @@ include 'filesystem.asm'
 rom_filesystem_end:
 include 'keyboard_repeat.asm'
 rom_keyboard_tail_end:
+include 'sd_crc.asm'
+rom_crc_end:
 defs rom_end-$,0
 
 ; File offset 2000 = stock cartridge 3000, copied to RAM 7000 at entry.

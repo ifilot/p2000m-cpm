@@ -43,10 +43,12 @@ flowchart TD
 | `src/ccp.asm` | Prompt loop, token/FCB parsing, built-ins, COM loading and application entry |
 | `src/bdos.asm` | Public register-saving wrapper, numbered dispatch table, console and drive services, workspace |
 | `src/filesystem.asm` | Drive selection, directory cache/scanning, allocation, FCB matching, sequential/random transfers, file size |
-| `programs/hello.asm` | Smallest application: print through BDOS and return |
-| `programs/copy.asm` | Two independent FCBs, DMA, read/write/close, refusal to overwrite |
-| `programs/sync.asm` | Explicit cache commit through BDOS disk reset |
-| `programs/cpmtest.asm`, `programs/ramtest.asm`, `programs/filetest.inc` | Shared progress, cancellation, sequential and random-read verification; A:-only SD regression or L:-only RAM file test |
+| `src/fcb.asm` | Resident FCB positioning/synchronization and allocation-pointer validation |
+| `programs/serpins/`, `programs/sertx/`, `programs/serrx/`, `programs/common/serial_test.inc` | Standalone built-in RS232 diagnostics and shared software-timed serial routines |
+| `programs/hello/` | Smallest application: print through BDOS and return |
+| `programs/copy/` | Two independent FCBs, DMA, read/write/close, refusal to overwrite |
+| `programs/sync/` | Explicit cache commit through BDOS disk reset |
+| `programs/cpmtest/`, `programs/ramtest/`, `programs/common/filetest.inc` | Shared progress, cancellation, sequential and random-read verification; A:-only SD regression or L:-only RAM file test |
 
 Section separators group related operations without moving machine code.
 Some routines deliberately fall through into the next routine, while others
@@ -104,13 +106,26 @@ python3 tools/test_emulator.py
 python3 tools/test_programs.py
 ```
 
-Both emulator runners accept `--emulator /path/to/p2000m-emulator`, compile the
-actual emulator core and operate on temporary SD images. They do not modify
-the emulator checkout or a user's working card.
+Requirements are Python 3.11+, `z80asm` (Debian syntax), and GCC/G++ with C++17.
+The six Zork COM/DAT files are bundled in `assets/zork`; their provenance is
+recorded in its [README](../assets/zork/README.md). No companion checkout is
+needed for building or testing. `--zork-dir /path/to/zork` optionally overrides
+the bundled files.
+Both emulator runners compile the bundled [headless core](../tests/emulator/README.md)
+and operate on temporary SD images. They also accept
+`--emulator /path/to/p2000m-emulator` for upstream comparisons.
+
+GitHub Actions builds these artifacts on every commit and creates releases from
+tags. The full behavioral suite uses the bundled core without Qt or a private
+repository token. See the
+[continuous-integration guide](continuous-integration.md) for the dependency,
+pinned revisions, artifacts, and release rules.
 
 The assembly regression fixture records reviewed machine-code hashes. The
-0.3.0 ROM/kernel baseline includes the split ROM filesystem and relocated
-workspace/TPA. SOURCE_DATE_EPOCH=0 fixes metadata during the assembly regression.
+0.4.0 ROM/kernel baseline includes the split ROM filesystem and relocated
+workspace/TPA, hidden boot attempt counts, fresh-line warm-boot prompts and
+ROM-resident SD CRC protection with disposable boot display code.
+SOURCE_DATE_EPOCH=0 fixes metadata during the assembly regression.
 The two-pass link checks all ROM/RAM cross-references and rejects region overflow.
 It checks the ROM, full kernel, original programs and TPA
 boundary fixture, including their addresses, padding and fall-through layout.
@@ -121,6 +136,9 @@ Image unit tests check partition/FAT structure, extent round trips and invalid
 inputs. The system suite checks boot, absent/corrupt media, partition boundaries,
 SD persistence, SRAM banks, warm boot, filesystem limits, user areas, attributes,
 and the TPA boundary. It also exercises the applications together.
+`test_sd_crc.py` and `sd_crc.cpp` exercise the actual Z80 CRC routines and
+corrupt SPI traffic through the emulator's public bridge ports. They check
+CRC vectors, mandatory CMD59, CID/sector rejection, recovery and cache retention.
 
 The separate program suite boots a fresh machine/card for each utility:
 

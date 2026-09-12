@@ -171,7 +171,7 @@ fs_writable:
 ; Perform one BIOS read or buffered write of a logical record.
 ;
 ; Inputs:   HL = record number; BC -> 128-byte DMA; A=0 read, A=1 write; fs_drive set.
-; Outputs:  A=0/Z=1 success or A=1/Z=0 failure.
+; Outputs:  A=0/Z=1 success; failure enters bdos_disk_error and never returns.
 ; Clobbers: AF, BC, DE, HL; io_mode, BIOS latches, media/DMA and ROM scratch.
 ;
 ; The DMA pointer and record are saved on the stack while shifts derive
@@ -209,9 +209,16 @@ fs_io_shift:
     call disk_dma
     ld a,(io_mode)
     or a
-    jp z,disk_read
+    jr z,fs_io_read
     ld c,0                 ; filesystem commits explicitly at its boundaries
-    jp disk_write
+    call disk_write
+    jr fs_io_result
+fs_io_read:
+    call disk_read
+fs_io_result:
+    or a
+    jp nz,bdos_disk_error
+    ret
 
 ; ============================================================================
 ; DIRECTORY CACHE: four 32-byte entries per logical record
@@ -357,40 +364,6 @@ fs_name_next:
     djnz fs_name_byte
     xor a
     ret
-; HL entry -> DE logical extent number.
-
-; ----------------------------------------------------------------------------
-; Routine: fs_entry_extent
-; Decode an entry logical extent number from EX and S2.
-;
-; Inputs:   HL -> 32-byte directory entry.
-; Outputs:  DE = (S2 & 63)*32 + (EX & 31); original HL restored.
-; Clobbers: AF, DE; BC, HL, IX preserved.
-; ----------------------------------------------------------------------------
-fs_entry_extent:
-    push hl
-    ld de,12
-    add hl,de
-    ld a,(hl)
-    and 31
-    ld e,a
-    inc hl
-    inc hl
-    ld a,(hl)
-    and 63
-    ld l,a
-    ld h,0
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    add hl,hl
-    ld d,0
-    add hl,de
-    ex de,hl
-    pop hl
-    ret
-
 ; ----------------------------------------------------------------------------
 ; Routine: fs_extent_match
 ; Compare physical extent groups, or accept the wildcard sentinel.
@@ -473,59 +446,6 @@ fs_any_extent:
 ; random record R0/R1/R2=33..35. CR may equal 128 at a sequential boundary.
 ; ============================================================================
 
-; ----------------------------------------------------------------------------
-; Routine: fs_position
-; Convert the FCB sequential position into a record number.
-;
-; Inputs:   IX -> FCB with EX/S2/CR set.
-; Outputs:  HL and rw_record = record, CY=0 when valid. CY=1 on overflow.
-;           Invalid masked S2>=16 returns zero; final-add overflow returns low 16 bits.
-; Clobbers: AF, BC, DE, HL.
-;
-; Record = ((S2 & 63)*32 + (EX & 31))*128 + CR. The separate
-; overflow path rejects S2>=16 rather than silently wrapping an 8 MiB file.
-; ----------------------------------------------------------------------------
-fs_position:
-    ld a,(ix+14)
-    and 63
-    cp 16
-    jr nc,fs_position_overflow
-    ld h,a
-    ld l,0
-    srl h
-    rr l
-    srl h
-    rr l
-    srl h
-    rr l
-    ; HL = S2 * 32
-    ld a,(ix+12)
-    and 31
-    or l
-    ld l,a
-    ld b,7
-fs_position_shift:
-    add hl,hl
-    djnz fs_position_shift
-    ld e,(ix+32)
-    ld d,0
-    add hl,de
-    ld (rw_record),hl
-    ret
-
-; ----------------------------------------------------------------------------
-; Routine: fs_position_overflow
-; Return an invalid sequential-position result.
-;
-; Inputs:   Tail-entered for S2 outside the supported 8 MiB logical-file range.
-; Outputs:  HL=0, rw_record=0, CY=1.
-; Clobbers: F, HL.
-; ----------------------------------------------------------------------------
-fs_position_overflow:
-    ld hl,0
-    ld (rw_record),hl
-    scf
-    ret
 
 ; ----------------------------------------------------------------------------
 ; Routine: fs_want_position
@@ -544,65 +464,6 @@ fs_want_shift:
     djnz fs_want_shift
     ld (wanted_extent),hl
     ret
-; Copy allocations and RC from entry_copy, retaining current logical position.
-
-; ----------------------------------------------------------------------------
-; Routine: fs_sync_fcb
-; Copy allocation/length metadata while retaining the logical position.
-;
-; Inputs:   IX -> FCB; entry_copy holds the matched entry; rw_record is position.
-; Outputs:  FCB EX/S1/S2/RC/allocation/CR updated; IX unchanged.
-; Clobbers: AF, BC, DE, HL; FCB bytes 12..32.
-;
-; On SD, directory EX may describe the second logical extent while the
-; caller is reading the first. In that case RC is reported as 128, not the tail RC.
-; ----------------------------------------------------------------------------
-fs_sync_fcb:
-    ld hl,entry_copy+16
-    push ix
-    pop de
-    push de
-    ld bc,16
-    ex de,hl
-    add hl,bc
-    ex de,hl
-    ldir
-    pop de
-    ld hl,(rw_record)
-    ld a,l
-    and 127
-    ld (ix+32),a
-    ld b,7
-fs_sync_shift:
-    srl h
-    rr l
-    djnz fs_sync_shift
-    ld a,l
-    and 31
-    ld (ix+12),a
-    ld a,l
-    ld b,5
-fs_sync_s2:
-    srl h
-    rr l
-    djnz fs_sync_s2
-    ld (ix+14),l
-    ld (ix+13),0
-    ld a,(entry_copy+12)
-    ld b,a
-    ld a,(extent_mask)
-    and b
-    ld b,a
-    ld a,(extent_mask)
-    and (ix+12)
-    cp b
-    ld a,128
-    jr c,fs_sync_rc
-    ld a,(entry_copy+15)
-fs_sync_rc:
-    ld (ix+15),a
-    ret
-
 ; ----------------------------------------------------------------------------
 ; Routine: fs_copy_entry
 ; Save the current directory entry across scans and allocation work.
@@ -644,20 +505,36 @@ fs_result_index:
 ; Routine: fs_open
 ; BDOS 15: locate an extent and populate the caller FCB.
 ;
-; Inputs:   IX -> FCB with drive/name and sequential position.
+; Inputs:   IX -> FCB with drive/name and EX/S2; CR is preserved, not used to select.
 ; Outputs:  HL=slot 0..3 on success, 00FFh if invalid/missing/error.
+;           Success binds wildcard name/type to the matched entry.
 ; Clobbers: AF, BC, DE, HL; FCB and filesystem scratch.
 ; ----------------------------------------------------------------------------
 fs_open:
     call fs_setup
     jp nz,return_ff
+    ld a,(ix+32)
+    push af
+    ld (ix+32),0           ; CR is not part of OPEN's extent selection
     call fs_position
+    pop bc
+    ld (ix+32),b
     jp c,return_ff
     call fs_want_position
     call fs_find
     jp nz,return_ff
     call fs_copy_entry
+    ld hl,entry_copy+1
+    push ix
+    pop de
+    inc de
+    ld bc,11
+    ldir                  ; bind wildcard OPEN to the matched filename/attributes
+    ld a,(ix+32)
+    push af
     call fs_sync_fcb
+    pop af
+    ld (ix+32),a
     jp fs_result_index
 
 ; ----------------------------------------------------------------------------
@@ -798,9 +675,17 @@ fs_store_entry:
 ;
 ; Sets search_index=0 and falls through into fs_next. EX=? lists all
 ; physical extents; otherwise the requested extent group is matched.
+; DR=? scans raw entries on the current drive, including free slots/all users.
 ; ----------------------------------------------------------------------------
 fs_first:
+    ld a,(ix+0)
+    cp '?'
+    jr nz,fs_first_normal
+    call fs_current
+    jr fs_first_ready
+fs_first_normal:
     call fs_setup
+fs_first_ready:
     jp nz,return_ff
     push ix
     pop hl
@@ -841,6 +726,9 @@ fs_search_loop:
     call fs_dir_get
     or a
     jr nz,fs_search_end
+    ld a,(ix+0)
+    cp '?'
+    jr z,fs_search_hit     ; raw directory scan includes free slots and all users
     call fs_name_match
     jr nz,fs_search_skip
     ; Search EX '?' includes all extents; otherwise compare physical group.
@@ -1105,13 +993,9 @@ fs_bit_address:
 ; Clobbers: AF, B, HL; allocation bitmap.
 ; ----------------------------------------------------------------------------
 fs_mark:
-    push de
-    ld hl,(max_blocks)
-    or a
-    sbc hl,de
-    pop de
-    jp c,disk_error
-    jp z,disk_error
+    ld a,d
+    or e
+    call nz,fs_validate_block
     call fs_bit
     or (hl)
     ld (hl),a
@@ -1349,6 +1233,15 @@ fs_rw_begin:
     jp z,return_a
     call fs_writable
     jp nz,return_ff
+    call fs_any_extent
+    call fs_find
+    jp nz,return_ff
+    ld hl,(entry_ptr)
+    ld de,9
+    add hl,de
+    bit 7,(hl)
+    jp nz,return_ff
+    call fs_want_position
     call fs_create_extent
     or a
     ld a,5
@@ -1465,6 +1358,8 @@ fs_eof:
 ; is deliberately left for fs_position to fold into the next extent on next call.
 ; ----------------------------------------------------------------------------
 fs_data_io:
+    ld de,(rw_block)
+    call fs_validate_block
     ld hl,(rw_block)
     ld a,(block_shift)
     ld b,a

@@ -110,7 +110,7 @@ The updated 0.3.0 build implements this architecture in `src/keyboard.asm` and
 `src/keyboard_repeat.asm`, with a 63-character FIFO and independent two-sample
 key debounce. It retains the corrected lowercase/Shift-uppercase mapping.
 The vector is E7FE, the private interrupt stack is DC00–DC7F, the queue is
-DCC0–DCFF, and state is DDC4–DDE0. TPA remains 51 KiB.
+DCC0–DCFF, and state is DDC4–DDE0. The hardened BDOS build has a 50.5 KiB TPA.
 
 `tests/keyboard.cpp` exercises overlapping typing, shift capture, bounce,
 repeat timing, queue ordering/overflow/wrap, NUL/control characters, DI/EI

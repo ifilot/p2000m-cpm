@@ -91,8 +91,10 @@ int main(int argc,char **argv){
     require(m.peekMemory(0x9000)==0,"SD workload failed before typing");
     tap(m,4,2);tap(m,3,5);m.setKey(9,0,true);tap(m,3,4);m.setKey(9,0,false);tap(m,1,4);
     require(m.peekMemory(0x9000)==0,"SD workload finished before type-ahead test");
-    for(int n=0;n<1000 && m.peekMemory(0x9000)==0;++n)frames(m,50);
-    require(m.peekMemory(0x9000)==0xa5,"SD workload failed or timed out");
+    // The 2,000 forced-I/O iterations now also calculate/check every SD CRC.
+    for(int n=0;n<2000 && m.peekMemory(0x9000)==0;++n)frames(m,50);
+    require(m.peekMemory(0x9000)==0xa5,"SD workload failed or timed out: status="+
+            std::to_string(m.peekMemory(0x9000))+" PC="+std::to_string(m.programCounter()));
     require(drain(m)=="abCd","Type-ahead lost during SD reads");
     for(unsigned base:{p2m_layout::keyboard_stack_bottom,p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom})
         for(unsigned i=0;i<16;++i)require(m.peekMemory(base+i)==0xa5,"IRQ/BDOS/system stack overflow");

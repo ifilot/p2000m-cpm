@@ -1,4 +1,4 @@
-"""Generate assembly-only dashboard assets and per-artifact build identity."""
+"""Generate assembly-only dashboard assets and shared system build identity."""
 from datetime import datetime, timezone
 import os
 from pathlib import Path
@@ -19,16 +19,16 @@ def generate(root):
     epoch = int(os.environ['SOURCE_DATE_EPOCH']) if 'SOURCE_DATE_EPOCH' in os.environ else None
     instant = datetime.fromtimestamp(epoch, timezone.utc) if epoch is not None else datetime.now(timezone.utc)
     timestamp = instant.strftime('%Y-%m-%d %H:%M UTC')
-    metadata = {name: f'  {name:<7} v{version:<9} Built {timestamp}' for name in ('ROM', 'Kernel')}
+    metadata = f'  System  v{version:<9} Built {timestamp}'
     screen = design('grid3')
-    screen.put(1, metadata['ROM'].ljust(78))
-    screen.put(2, '  Kernel  version/build pending verification'.ljust(78))
+    screen.put(1, metadata.ljust(78))
+    screen.put(2, '  Cartridge + kernel  /  pending verification'.ljust(78))
     screen.put(3, '  TPA     pending kernel verification'.ljust(78))
     screen.item(6, 'Co-board', 'RAM switch 9000 / F000', 'SWITCHING')
     screen.item(7, 'Kernel', f'{KERNEL_RANGE}  /  SD sectors 16-{15 + LAYOUT["kernel_sectors"]}', 'WAIT')
     screen.item(9, 'Manufacturer', 'MID --  /  OEM --', 'PENDING')
     screen.item(10, 'Identity', 'Product -----  /  Serial --------', '')
-    screen.item(11, 'Startup', 'SPI mode  /  attempt 1/8', 'STARTING')
+    screen.item(11, 'Startup', 'SPI mode', 'STARTING')
     for row in range(13, 17):
         for col in (18, 44, 70):
             screen.put(row, '    --', col=col)
@@ -40,7 +40,7 @@ def generate(root):
     (out / 'boot_screen.inc').write_text(db('stock_screen', screen.chars) +
         db('stock_banner', screen.lines[0].encode('ascii') + b'\0'))
     ready = design('grid3')
-    kernel = db('kernel_build_text', metadata['Kernel'].ljust(78).encode('ascii') + b'\0')
+    kernel = db('kernel_pair_text', '  Cartridge + kernel  /  matched system release'.ljust(78).encode('ascii') + b'\0')
     kernel += db('kernel_tpa_text', TPA_TEXT.ljust(78).encode('ascii') + b'\0')
     for index, row in enumerate(range(13, 17)):
         kernel += db(f'drive_row_{index}', ready.lines[row][1:79].encode('ascii') + b'\0')

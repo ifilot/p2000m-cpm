@@ -45,12 +45,13 @@ class Screen:
 def design(state):
     s = Screen()
     ready, failed = state in ('ready', 'expanded', 'grid3', 'grid2'), state == 'failed'
-    # Illustrative artifact metadata, not versions/dates read from a real build.
+    # Illustrative shared release metadata, not dates read from a real build.
     s.bar(0, 'P2000M SD SYSTEM')
     s.put(0, 'CP/M 2.2 compatible', col=58, inverse=True)
-    s.put(1, '  ROM     v0.3.1     Built 2026-09-08 18:05 UTC')
-    s.put(2, '  Kernel  v0.4.0     Built 2026-09-10 14:32 UTC' if ready else
-          '  Kernel  not loaded' if failed else '  Kernel  version/build pending verification')
+    s.put(1, '  System  v0.4.0     Built 2026-09-10 14:32 UTC')
+    s.put(2, '  Cartridge + kernel  /  matched system release' if ready else
+          '  Cartridge + kernel  /  kernel not loaded' if failed else
+          '  Cartridge + kernel  /  pending verification')
     s.put(3, TPA_TEXT if ready else
           '  TPA     pending kernel verification')
     s.border(4)
@@ -60,13 +61,12 @@ def design(state):
            f'{KERNEL_RANGE}  /  SD sectors 16-{15 + LAYOUT["kernel_sectors"]}', 'OK' if ready else
            ('NOT LOADED' if failed else 'LOADING'))
     s.bar(8, 'SD CARD')
-    # Firmware currently reads CID in the kernel, after the loader has finished.
+    # The loader reads CID after establishing SPI mode.
     s.item(9, 'Manufacturer', 'MID 03  /  OEM SD' if ready else
            'Not available' if failed else 'Identification pending',
            'READY' if ready else 'FAILED' if failed else 'PENDING')
     s.item(10, 'Identity', 'Product AKGCE  /  Serial DAA835A4' if ready else '--', '')
-    s.item(11, 'Startup', 'SPI mode  /  attempt 8/8' if failed else
-           'SPI mode  /  attempt 2/8', 'EXHAUSTED' if failed else 'RECOVERED')
+    s.item(11, 'Startup', 'SPI mode', 'FAILED' if failed else 'OK' if ready else 'STARTING')
     s.bar(12, '')
     for col, label in ((3, 'DRIVE'), (17, 'BACKING STORE'), (49, 'CAPACITY'), (71, 'STATUS')):
         s.put(12, label, col=col, inverse=True)

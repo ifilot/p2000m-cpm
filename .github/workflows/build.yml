@@ -1,0 +1,100 @@
+name: Build, test, and release
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out CP/M source
+        uses: actions/checkout@v7.0.1
+        with:
+          path: p2000m-cpm
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential z80asm
+
+      - name: Set reproducible build timestamp
+        working-directory: p2000m-cpm
+        run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
+
+      - name: Build cartridge and SD-card image
+        working-directory: p2000m-cpm
+        run: python3 tools/build.py
+
+      - name: Run complete test suite
+        working-directory: p2000m-cpm
+        run: |
+          python3 -m unittest discover -s tests -v
+          python3 tools/test_emulator.py
+          python3 tools/test_programs.py
+
+      - name: Verify tag matches VERSION
+        if: startsWith(github.ref, 'refs/tags/')
+        working-directory: p2000m-cpm
+        shell: bash
+        run: |
+          tag_version="${GITHUB_REF_NAME#v}"
+          project_version="$(tr -d '\r\n' < VERSION)"
+          test "$tag_version" = "$project_version" || {
+            echo "Tag $GITHUB_REF_NAME does not match VERSION ($project_version)" >&2
+            exit 1
+          }
+
+      - name: Stage downloadable artifacts
+        working-directory: p2000m-cpm
+        run: |
+          mkdir -p build/release
+          cp build/cartridge.bin build/release/
+          cp build/p2000m-sd-template.img build/release/
+          cp build/p2000m-sd-template.img.gz build/release/
+          cp build/build-info.json build/release/
+          cd build/release
+          sha256sum cartridge.bin p2000m-sd-template.img p2000m-sd-template.img.gz build-info.json > SHA256SUMS
+
+      - name: Upload commit artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: p2000m-cpm-${{ github.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: p2000m-cpm/build/release/
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build-test-release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download tested artifacts
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: p2000m-cpm-${{ github.sha }}
+          path: release
+
+      - name: Create GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            release/cartridge.bin \
+            release/p2000m-sd-template.img \
+            release/p2000m-sd-template.img.gz \
+            release/build-info.json \
+            release/SHA256SUMS \
+            --verify-tag \
+            --generate-notes \
+            --title "P2000M SD CP/M $GITHUB_REF_NAME"

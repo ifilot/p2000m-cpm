@@ -100,5 +100,6 @@ include 'cold_boot.asm'
 cold_code_end:
 defs resident_base-$,0
 include 'bdos.asm'
+include 'fcb.asm'
 include 'ccp.asm'
 include 'bios.asm'

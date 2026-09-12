@@ -1,0 +1,17 @@
+P2000M Emulator
+Copyright (C) 2026 P2000M Emulator contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT
+ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS
+FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
+
+The complete GNU GPL version 3 text is available at
+https://www.gnu.org/licenses/gpl-3.0.txt.
+
+The Z80 CPU core in `src/vendor/superzazu_z80` is separately licensed under
+the MIT license included in that directory.

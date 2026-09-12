@@ -28,10 +28,10 @@ attribute dumps. Bounds are checked during rendering.
 
 ## Layout and behavior proposed for implementation
 
-The revised layout separates CP/M compatibility from independently versioned
-ROM and kernel artifacts. Both show their own build timestamp in UTC. Versions
-`v0.3.1` / `v0.4.0` and both dates are illustrative, not actual build metadata.
-Kernel metadata remains pending until the kernel has been loaded and verified.
+The layout separates CP/M compatibility from the shared cartridge/kernel
+system version and UTC build timestamp. The preview's version and date are
+illustrative, not actual build metadata. The cartridge/kernel pair remains
+pending until the kernel has been loaded and its versioned link fingerprint verified.
 The title describes compatibility; it does not change BDOS's version response.
 
 ### 24-line budget (one-based screen lines)
@@ -39,7 +39,7 @@ The title describes compatibility; it does not change BDOS's version response.
 | Lines | Content |
 | --- | --- |
 | 1 | System title and CP/M 2.2 compatibility |
-| 2-3 | ROM and kernel versions, with individual build dates/times |
+| 2-3 | Shared system version/build time and cartridge/kernel verification |
 | 4 | TPA size and address range |
 | 5-8 | Table border and cartridge/co-board/kernel status |
 | 9-12 | SD heading, manufacturer, identity and retry status |
@@ -109,8 +109,8 @@ tests and documentation; the mockup does not make those firmware changes.
 - Use one activity line for the current operation and bounded progress counters.
 - Show pending fields until their values have actually been read or validated.
   In particular, the current kernel reads CID after the ROM loads the kernel.
-- Retain successful recovery as a compact attempt count and `RECOVERED` status.
-  A first-attempt success would show `attempt 1/8` and `OK` instead.
+- Show established SPI mode as `OK`, regardless of previous retries.
+  Retry limits and timing are unchanged.
 - Show raw command/response bytes when boot stops, not below a working prompt.
 - Place the command prompt below all boot output; no subsequent boot diagnostics
   should write below it. The dashboard is ordinary scrollable console history,

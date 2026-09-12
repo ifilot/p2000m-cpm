@@ -9,7 +9,7 @@ ASM, DDT, ED, LOAD, PIP and STAT were copied byte-for-byte from the user-supplie
 [ifilot/p2000c-cpm-disk-tool, commit 37f7ae0035044362c383b4818e5d664353f15baa](https://github.com/ifilot/p2000c-cpm-disk-tool/tree/37f7ae0035044362c383b4818e5d664353f15baa/files/core)
 as their upstream source.
 
-DUMP was absent from the supplied folder. `dump.com` is the unchanged
+DUMP was absent from the supplied folder. `DUMP.COM` is the unchanged
 `A/0/DUMP.COM` member of
 [RunCPM's DISK/A0.zip, commit 79396be665d6ec263a2728b20b177f4149647ed8](https://github.com/MockbaTheBorg/RunCPM/blob/79396be665d6ec263a2728b20b177f4149647ed8/DISK/A0.zip).
 Archive SHA-256: `52882689181d0ad17acbc113097e92b223395674dd4b16d6d8765f4643c9b518`.

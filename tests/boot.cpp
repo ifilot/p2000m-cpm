@@ -79,9 +79,14 @@ int main(int argc, char **argv) {
                         "Copied RAM loader differs from cartridge source");
         }
         const auto bootScreen = screen(m);
+        require(bootScreen.find("attempt ")==std::string::npos,"Boot displays retry count");
+        require(bootScreen.find("RECOVERED")==std::string::npos,"Boot displays recovery history");
+        require(bootScreen.substr(11*80+65,12)=="          OK","SPI not shown established before kernel entry");
+        require(bootScreen.find("System  v")!=std::string::npos,"Missing shared system version");
+        require(bootScreen.find("pending verification")!=std::string::npos,"Pair verified before kernel entry");
         for (const auto *stage : {"P2000M SD SYSTEM", "CP/M 2.2 compatible",
                                  "RAM enabled  /  RAM loader 7000",
-                                 "SPI mode  /  attempt 1/8", "MID 01  /  OEM PM",
+                                 "SPI mode", "MID 01  /  OEM PM",
                                  "STARTING KERNEL  /  entry A000"})
             require(bootScreen.find(stage) != std::string::npos,
                     std::string("Missing boot stage: ") + stage + " " + bootScreen);
@@ -92,11 +97,14 @@ int main(int argc, char **argv) {
         frames(m,300);
         require(screen(m).find("BOOT COMPLETE") != std::string::npos,
                 "Kernel did not boot: PC=" + std::to_string(m.programCounter()) + " " + screen(m));
+        require(screen(m).find("Cartridge + kernel  /  matched system release")!=std::string::npos,
+                "Missing shared release verification");
+        require(screen(m).substr(80,80)==bootScreen.substr(80,80),"Kernel replaced shared version/build identity");
         require(screen(m).find("C: ZORK") != std::string::npos &&
                 screen(m).find("L: SCRATCH (RAM) 128KiB") != std::string::npos,
                 "Missing named volume grid: " + screen(m));
         require(screen(m).substr(20*80+1,2)=="A>","Prompt not on line 21");
-        require(screen(m).substr(3*80,80).find("51.00 KiB (52224 bytes)")!=std::string::npos,
+        require(screen(m).substr(3*80,80).find(std::to_string(p2m_layout::tpa_limit-0x100)+" bytes")!=std::string::npos,
                 "Missing TPA capacity");
         for(unsigned row : {5u,6u,7u,9u,11u})
             require(screen(m).substr(row*80+65,12)=="          OK","Stale status suffix");
@@ -127,6 +135,7 @@ int main(int argc, char **argv) {
             frames(mismatch,700);
             require(screen(mismatch).find("update port-1 ROM")!=std::string::npos,"ROM/kernel mismatch was accepted");
             require(screen(mismatch).find("A>")==std::string::npos,"Mismatched pair reached command prompt");
+            require(screen(mismatch).find("matched system release")==std::string::npos,"Mismatched pair displayed as matched");
         }
         // On a read-only card, reads succeed and writes propagate rejection.
         // Corrupt only the first in-memory header/payload: each full-load retry
@@ -154,7 +163,10 @@ int main(int argc, char **argv) {
             require(late.sdCartridge().insert(build+"/p2000m-sd-template.img",true,&error),error);
             frames(late,700);
             require(screen(late).find("BOOT COMPLETE")!=std::string::npos,"Delayed card did not recover");
-            require(screen(late).find("attempt 2/8")!=std::string::npos,"Delayed-card attempt count wrong");
+            require(late.peekMemory(p2m_layout::rom_workspace+0x12)==2,"Delayed-card attempt count wrong");
+            require(screen(late).find("attempt ")==std::string::npos,"Recovery displays retry count");
+            require(screen(late).find("RECOVERED")==std::string::npos,"Recovery history still displayed");
+            require(screen(late).substr(11*80+65,12)=="          OK","Recovered SPI not shown established");
         }
         {
             P2000Machine protectedCard;
@@ -280,13 +292,14 @@ int main(int argc, char **argv) {
         frames(absent, 700); // Includes eight bounded reset/initialization attempts.
         require(screen(absent).find("SD BOOT ERROR") != std::string::npos,
                 "Absent SD did not give a bounded boot error");
-        require(screen(absent).find("attempt 8/8") != std::string::npos,
+        require(absent.peekMemory(p2m_layout::rom_workspace+0x12)==8,
                 "SD retry limit was not reached");
+        require(screen(absent).find("attempt ")==std::string::npos,"Failure displays retry count");
         P2000Machine delayed;
         launch(delayed, emu, build);
-        for (int i=0; i<300 && screen(delayed).find("attempt 2/8")==std::string::npos; ++i)
+        for (int i=0; i<300 && delayed.peekMemory(p2m_layout::rom_workspace+0x12)!=2; ++i)
             frames(delayed,1);
-        require(screen(delayed).find("attempt 2/8")!=std::string::npos,
+        require(delayed.peekMemory(p2m_layout::rom_workspace+0x12)==2,
                 "No retry after initial absent card");
         require(delayed.sdCartridge().insert(build+"/p2000m-sd-template.img",true,&error),error);
         frames(delayed,700);

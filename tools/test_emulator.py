@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compile against the supplied emulator core without modifying its checkout."""
+"""Run headless system tests using the bundled core (or an explicit checkout)."""
 import argparse
 from pathlib import Path
 import subprocess
@@ -10,6 +10,7 @@ from sd_image import create_image, install_kernel
 from build import CORE_FILES
 
 ROOT = Path(__file__).resolve().parents[1]
+EMULATOR = ROOT / 'tests/emulator'
 
 
 def fat_digest(card):
@@ -71,7 +72,7 @@ def compile_harness(emulator, name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--emulator', type=Path,
-                        default=ROOT.parent / 'p2000m-emulator')
+                        default=EMULATOR)
     args = parser.parse_args()
     build = ROOT / 'build'
     build.mkdir(exist_ok=True)
@@ -83,7 +84,7 @@ def main():
         if actual != expected + b'\x1a' * (-len(expected) % 128):
             raise AssertionError(f'Bundled utility mismatch: {source.name}')
     print('PASS: all seven standard utilities are present byte-exact in the built SD image', flush=True)
-    for name in ('keyboard', 'cache', 'boot', 'cpm'):
+    for name in ('keyboard', 'cache', 'boot', 'cpm', 'sd_crc', 'bdos_conformance'):
         compile_harness(args.emulator, name)
         with tempfile.TemporaryDirectory(prefix='p2000m-cpm-') as tmp:
             card = Path(tmp) / 'writable.img'

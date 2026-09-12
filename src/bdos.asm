@@ -148,6 +148,14 @@ return_a:
     ld h,0
     ret
 
+; Physical/integrity failures must never look like EOF or a missing filename.
+; Abort the caller; WBOOT retains dirty buffers if their flush also fails.
+bdos_disk_error:
+    ld hl,bdos_disk_error_text
+    call ccp_puts
+    jp warm_boot
+bdos_disk_error_text: db 13,10,'BDOS disk error: I/O or corrupt directory',13,10,0
+
 ; ============================================================================
 ; CONSOLE SERVICES: characters, direct I/O and dollar-terminated strings
 ; These are internal BDOS handlers. argument contains the original DE;
@@ -165,10 +173,10 @@ return_a:
 ; The BIOS read does not echo; this handler explicitly calls CONOUT.
 ; ----------------------------------------------------------------------------
 bdos_input:
-    call console_input
+    call bdos_cooked_input
     push af
     ld c,a
-    call console_output
+    call bdos_console_output
     pop af
     jp return_a
 
@@ -183,7 +191,7 @@ bdos_input:
 bdos_output:
     ld a,(argument)
     ld c,a
-    call console_output
+    call bdos_console_output
     jp return_zero
 
 ; ----------------------------------------------------------------------------
@@ -212,7 +220,11 @@ bdos_reader:
 bdos_direct:
     ld a,(argument)
     cp 0xff
-    jp nz,bdos_output
+    jr z,bdos_direct_input
+    ld c,a
+    call console_output
+    jp return_zero
+bdos_direct_input:
     call console_status
     or a
     jp z,return_zero
@@ -263,9 +275,53 @@ bdos_string_loop:
     cp '$'
     jp z,return_zero
     ld c,a
-    call console_output
+    call bdos_console_output
     inc hl
     jr bdos_string_loop
+
+; Cooked output observes flow-control keys without stealing ordinary type-ahead.
+; Function 6 and BIOS CONOUT deliberately bypass this processing.
+bdos_console_output:
+    push af
+    push bc
+    push hl
+    call console_status
+    or a
+    jr z,bdos_console_emit
+    ld a,(key_tail)
+    or 0xc0
+    ld l,a
+    ld h,0xdc
+    ld a,(hl)
+    cp 19
+    jr z,bdos_console_pause
+    cp 17
+    jr nz,bdos_console_emit
+    call console_input
+    jr bdos_console_emit
+bdos_console_pause:
+    call console_input
+    call bdos_resume
+bdos_console_emit:
+    pop hl
+    pop bc
+    pop af
+    jp console_output
+bdos_cooked_input:
+    call console_input
+    cp 17
+    jr z,bdos_cooked_input
+    cp 19
+    ret nz
+    call bdos_resume
+    jr bdos_cooked_input
+bdos_resume:
+    call console_input
+    cp 3
+    jp z,warm_boot
+    cp 17
+    jr nz,bdos_resume
+    ret
 
 ; ----------------------------------------------------------------------------
 ; Routine: bdos_status
@@ -296,21 +352,27 @@ bdos_status:
 ;
 ; CR/LF finishes. Backspace/DEL erase, Ctrl-U/Ctrl-X kill the line, and
 ; Ctrl-C on an empty line enters warm_boot instead of returning.
+; TAB and caret controls retain their original bytes; Ctrl-E ends only the
+; physical line, Ctrl-R redraws. Reaching maximum capacity also returns.
 ; ----------------------------------------------------------------------------
 bdos_line:
     ld (ix+1),0
+    xor a
+    ld (line_anchor),a
+    ld a,(column)
+    ld (line_column),a
 line_key:
-    call console_input
+    call bdos_cooked_input
     cp 13
-    jr z,line_done
+    jp z,line_done
     cp 10
-    jr z,line_done
+    jp z,line_done
     cp 3
     jr nz,line_not_abort
     ld a,(ix+1)
     or a
     jp z,warm_boot
-    jr line_key
+    ld a,3
 line_not_abort:
     cp 8
     jr z,line_back
@@ -320,8 +382,10 @@ line_not_abort:
     jr z,line_kill
     cp 24
     jr z,line_kill
-    cp 32
-    jr c,line_key
+    cp 5
+    jr z,line_physical_end
+    cp 18
+    jr z,line_retype
     ld c,a
     ld a,(ix+1)
     cp (ix+0)
@@ -335,7 +399,10 @@ line_not_abort:
     inc hl
     ld (hl),c
     inc (ix+1)
-    call console_output
+    call line_echo
+    ld a,(ix+1)
+    cp (ix+0)
+    jp z,line_done
     jr line_key
 line_back:
     ld a,(ix+1)
@@ -350,22 +417,123 @@ line_kill:
     call line_erase
     jr line_kill
 
+line_physical_end:
+    call ccp_newline
+    ld a,(ix+1)
+    ld (line_anchor),a
+    xor a
+    ld (line_column),a
+    jr line_key
+line_retype:
+    call line_redraw
+    jr line_key
+line_redraw:
+    call ccp_newline
+    xor a
+    ld (line_anchor),a
+    ld (line_column),a
+    ld b,(ix+1)
+    inc b
+    push ix
+    pop hl
+    inc hl
+    inc hl
+line_redraw_loop:
+    djnz line_redraw_char
+    ret
+line_redraw_char:
+    ld c,(hl)
+    call line_echo
+    inc hl
+    jr line_redraw_loop
+
+line_echo:
+    ld a,c
+    cp 9
+    jp z,bdos_console_output
+    cp 32
+    jp nc,bdos_console_output
+    push bc
+    ld c,'^'
+    call bdos_console_output
+    pop bc
+    push bc
+    set 6,c
+    call bdos_console_output
+    pop bc
+    ret
+
 ; ----------------------------------------------------------------------------
 ; Routine: line_erase
-; Remove one buffered character and erase its displayed cell.
+; Remove one buffered character, including its expanded TAB/control cells.
 ;
 ; Inputs:   IX -> input buffer; (IX+1)>0 (caller checks this).
-; Outputs:  (IX+1) decremented; terminal receives BS, space, BS.
-; Clobbers: AF, C; all pointer registers preserved.
+; Outputs:  (IX+1) decremented; cursor and video updated across row boundaries.
+; Clobbers: AF, BC, DE, HL.
 ; ----------------------------------------------------------------------------
 line_erase:
     dec (ix+1)
-    ld c,8
-    call console_output
-    ld c,' '
-    call console_output
-    ld c,8
-    jp console_output
+    ld a,(line_anchor)
+    ld e,a
+    ld d,0
+    ld a,(ix+1)
+    sub e
+    jp c,line_redraw       ; deletion crosses a Ctrl-E physical line boundary
+    ld b,a
+    push ix
+    pop hl
+    add hl,de
+    inc hl
+    inc hl
+    ld a,(line_column)
+    ld e,a
+    inc b
+line_width_loop:
+    ld a,(hl)
+    call line_width
+    add a,e
+    ld e,a
+    inc hl
+    djnz line_width_loop
+    ; The final width belongs to the deleted character, not the prefix.
+    ld b,c
+line_erase_cell:
+    ld hl,(cursor)
+    ld de,0xf000
+    or a
+    sbc hl,de
+    ret z
+    add hl,de
+    dec hl
+    ld (hl),' '
+    ld (cursor),hl
+    set 3,h
+    ld (hl),0
+    ld a,(column)
+    dec a
+    cp 0xff
+    jr nz,line_erase_column
+    ld a,79
+line_erase_column:
+    ld (column),a
+    djnz line_erase_cell
+    ret
+line_width:
+    ld c,1
+    cp 32
+    jr nc,line_width_done
+    inc c
+    cp 9
+    jr nz,line_width_done
+    ld a,e
+    and 7
+    ld c,a
+    ld a,8
+    sub c
+    ld c,a
+line_width_done:
+    ld a,c
+    ret
 line_done:
     ld c,13
     call console_output
@@ -438,6 +606,8 @@ bdos_select:
 bdos_select_ready:
     pop af
     ld (current_drive),a
+    call fs_current
+    jp nz,return_ff
     jp return_zero
 
 ; ----------------------------------------------------------------------------

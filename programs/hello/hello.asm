@@ -1,5 +1,5 @@
 ; ============================================================================
-; programs/hello.asm -- source tour and calling conventions
+; programs/hello/hello.asm -- source tour and calling conventions
 ; ============================================================================
 ; Headers use Inputs / Outputs / Clobbers; unlisted registers are preserved.
 ; Preservation applies to returning paths only.

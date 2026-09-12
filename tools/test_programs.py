@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
-"""Independent real-Z80 program cases. Compiles the harness against the supplied emulator."""
+"""Independent real-Z80 program cases using the bundled headless emulator."""
 import argparse
 from pathlib import Path
 import subprocess
 import tempfile
 import shutil
 import unittest
-from build import CORE_FILES
+from build import CORE_FILES, LANGUAGE_FILES
 from sd_image import create_image, install_kernel
-from test_emulator import ROOT, fat_digest, read_cpm_file, compile_harness
+from test_emulator import ROOT, EMULATOR, fat_digest, read_cpm_file, compile_harness
 
 BUILD = ROOT / 'build'
-EMULATOR = ROOT.parent / 'p2000m-emulator'
 CODE = bytes.fromhex('11 0b 01 0e 09 cd 05 00 c3 00 00') + b'ASM/LOAD OK\r\n$'
 SOURCE = b" ORG 100H\r\n LXI D,MSG\r\n MVI C,9\r\n CALL 5\r\n JMP 0\r\nMSG: DB 'ASM/LOAD OK',13,10,'$'\r\n END\r\n"
 
@@ -41,6 +40,13 @@ class BundledPrograms(unittest.TestCase):
         compile_harness(EMULATOR, "cpm")
 
     def run_program(self, name):
+        if name in ('MBASIC', 'BDSC'):
+            drive = 4 if name == 'MBASIC' else 1
+            for source in LANGUAGE_FILES[drive]:
+                disk_name = (source.stem.upper().ljust(8) + source.suffix[1:].upper().ljust(3)).encode('ascii')
+                data = source.read_bytes()
+                self.assertEqual(read_cpm_file(BUILD / 'p2000m-sd-template.img', drive, disk_name),
+                                 data + b'\x1a' * (-len(data) % 128), source.name)
         with tempfile.TemporaryDirectory(prefix='p2000m-program-') as tmp:
             tmp = Path(tmp)
             files = [*CORE_FILES, *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'SYNC'))]
@@ -57,7 +63,15 @@ class BundledPrograms(unittest.TestCase):
             card = tmp / 'card.img'
             existing = tmp / "RESULT.BIN"
             existing.write_bytes(b"PRESERVE ME" + bytes(117))
-            create_image(card, files, [existing] if name == "COPYEXISTS" else [])
+            language_files = {drive: list(paths) for drive, paths in LANGUAGE_FILES.items()}
+            if name in ('MBASIC', 'BDSC'):
+                filename = 'BASCHK.BAS' if name == 'MBASIC' else 'CCHK.C'
+                fixture = tmp / filename
+                fixture.write_bytes((ROOT / 'tests/fixtures' / filename).read_text().replace('\n', '\r\n').encode('ascii'))
+                language_files[4 if name == 'MBASIC' else 1].append(fixture)
+            if name == 'COPYEXISTS':
+                language_files[1].append(existing)
+            create_image(card, files, files_by_drive=language_files)
             if name.startswith('ZORK'):
                 shutil.copyfile(BUILD / 'p2000m-sd-template.img', card)
             install_kernel(card, (BUILD / 'kernel.bin').read_bytes())
@@ -77,9 +91,17 @@ class BundledPrograms(unittest.TestCase):
             elif name == 'ED':
                 text = read_cpm_file(card, 0, b'NOTES   TXT')
                 self.assertEqual(text.rstrip(b'\x1a'), b'EDITED ON SD\r\n')
+            elif name == 'MBASIC':
+                # CP/M text ends at Ctrl-Z; bytes beyond it are not text padding.
+                self.assertEqual(read_cpm_file(card, 4, b'BASOUT  TXT').split(b'\x1a')[0], b'BASIC DISK OK\r\n')
+                self.assertIn(b'PRINT 6*7', read_cpm_file(card, 4, b'SAVED   BAS'))
+            elif name == 'BDSC':
+                self.assertEqual(read_cpm_file(card, 1, b'COUT    TXT').split(b'\x1a')[0], b'BDS C DISK OK\r\n')
+                self.assertGreater(len(read_cpm_file(card, 1, b'CCHK    CRL')), 128)
+                self.assertGreater(len(read_cpm_file(card, 1, b'CCHK    COM')), 128)
 
 
-for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3'):
+for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3', 'MBASIC', 'BDSC'):
     setattr(BundledPrograms, 'test_' + program.lower(), lambda self, name=program: self.run_program(name))
 
 if __name__ == '__main__':
