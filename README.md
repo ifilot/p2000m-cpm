@@ -1,4 +1,8 @@
-# P2000M SD CP/M
+# Philips P2000M SD CP/M
+
+[![Build](https://github.com/ifilot/p2000m-cpm/actions/workflows/build.yml/badge.svg)](https://github.com/ifilot/p2000m-cpm/actions/workflows/build.yml)
+[![Latest tag](https://img.shields.io/github/v/tag/ifilot/p2000m-cpm?sort=date&label=version)](https://github.com/ifilot/p2000m-cpm/tags)
+[![License: GPLv3](https://img.shields.io/badge/license-GPLv3-blue.svg)](LICENSE)
 
 P2000M SD CP/M is an independent, CP/M 2.2-compatible system for the Philips
 P2000M. It uses the CP/M co-board, a 16 KiB boot cartridge in port 1, and an
