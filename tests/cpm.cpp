@@ -243,10 +243,16 @@ static void contract_tests(P2000Machine &m) {
             (word(m,0x850c)>>8)==0,"Unknown BDOS function contract");
 }
 
+#include "supercalc.h"
+
 // Each isolated case boots a fresh card; persistent output is checked by Python.
 static void program_test(P2000Machine &m,const std::string &name) {
     if(name=="ABI") {
         contract_tests(m);
+    } else if(name=="SUPERCALC" || name=="SCRELOAD") {
+        supercalc_test(m,name=="SCRELOAD");
+    } else if(name.rfind("SC",0)==0) {
+        supercalc_scenario(m,name);
     } else if(name=="HELLO") {
         type(m,"HELLO\n");prompt(m);
         wait_text(m,"Hello from an original Z80");
@@ -287,6 +293,10 @@ static void program_test(P2000Machine &m,const std::string &name) {
         type(m,"BANKTEST\n");prompt(m);wait_text(m,"BANKTEST PASS");
         for(unsigned i=0x4000;i<0x8000;++i)
             require(m.peekMemory(i)==((i^(i>>8)^0xa7)&255),"BANKTEST damaged normal window RAM");
+        for(unsigned row=7;row<=13;++row)
+            for(unsigned col : {20u,31u,44u,55u})
+                require(screen(m).substr(row*80+col,6)=="  OK  ","BANKTEST dashboard result missing");
+        require(m.attributes()[82]==8,"BANKTEST title is not inverse video");
         type(m,"HELLO\n");prompt(m);wait_text(m,"Hello from an original Z80");
     } else if(name=="SYNC") {
         type(m,"SYNC\n");prompt(m);wait_text(m,"SYNC: SD cache flushed");

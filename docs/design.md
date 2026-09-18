@@ -92,8 +92,8 @@ dependent metadata remain available for explicit retry. CRC does not provide
 authentication, persistent file checksums, or write-readback verification.
 
 The exact runtime map is documented in [memory-budget.md](memory-budget.md)
-and defined by `src/memory.inc`. The TPA is 0100–CAFF (50.5 KiB).
-The packed RAM system starts at CB00; the filesystem engine occupies always-
+and defined by `src/memory.inc`. The TPA is 0100–C8FF (50 KiB).
+The packed RAM system starts at C900; the filesystem engine occupies always-
 mapped ROM E800–EFBC. Buffers and all ROM/BDOS scratch remain outside the TPA.
 The 14 KiB load image stops at D800 so it never overwrites active ROM state.
 Cold boot initializes runtime buffers separately, preserving the ROM scratch.
@@ -102,7 +102,7 @@ by applications. BIOS BOOT flushes and returns through the stock monitor to
 recreate them; WBOOT stays resident and preserves the RAM drive.
 
 Applications enter at 0100. Location 0000 jumps to BIOS warm boot; location
-0005 jumps directly to the BDOS entry at CB00. BDOS uses a private stack and returns results
+0005 jumps directly to the BDOS entry at C900. BDOS uses a private stack and returns results
 in HL and A/B. The command processor stays resident above the reported TPA
 limit, so warm boot need not reload it or overwrite the RAM drive. Warm boot
 restores the command processor's drive from page zero. SD writes are buffered;
@@ -158,6 +158,15 @@ The SRAM
 BIOS explicitly sets low address port 48h, high address 49h and bank 4Bh for
 data transfers through 4Dh. There is no auto-increment hardware assumption.
 Both SRAM banks are formatted only on cold boot.
+
+The cartridge's software-controlled READ/WRITE LEDs use port 44h: bit 0 is
+READ, bit 1 is WRITE, and zero turns both off. SD commands light READ except
+CMD24, which lights WRITE through the data/CRC and busy wait. `sd_close` clears
+both on every normal/error exit, including retries. Physical SRAM record reads
+and writes use the same LEDs; cold formatting lights WRITE. Cache hits and
+writes staged only in CPU RAM do not light either LED. The cartridge's separate
+SEL/ACT indicators remain hardware-controlled. The original rev6 schematic's
+"$64" annotation is a typo: its decoder and original `src/ports.inc` specify 44h.
 
 ### Sector cache and durability
 

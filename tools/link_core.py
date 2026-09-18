@@ -9,6 +9,7 @@ from memory_layout import LAYOUT
 
 KERNEL_API = ('return_zero', 'return_ff', 'return_a', 'selected', 'dph_a',
               'track', 'record', 'dma', 'writing', 'cursor', 'column',
+              'terminal_escape', 'terminal_attribute', 'terminal_home', 'terminal_erase_screen',
               'warm_boot', 'bdos_input', 'bdos_output', 'bdos_reader',
               'bdos_direct', 'bdos_iobyte', 'bdos_setio', 'bdos_string', 'bdos_line',
               'bdos_status', 'bdos_version', 'bdos_reset', 'bdos_select', 'bdos_login',

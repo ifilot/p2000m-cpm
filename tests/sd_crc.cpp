@@ -1,5 +1,6 @@
 #include "p2000_machine.h"
 #include "memory_layout.h"
+#include "activity.h"
 #include <cstdint>
 #include <fstream>
 #include <iostream>
@@ -34,6 +35,7 @@ enum class Fault {none, command, read_data, read_high, read_low,
 // replacing any firmware service. RX faults drop a wire byte; TX faults alter
 // the transmit latch after OUT 40h and before OUT 41h starts the transfer.
 struct Wire {
+    Activity activity;
     Fault fault=Fault::none;
     unsigned remaining=0, injected=0, reads=0, writes=0, enables=0;
     unsigned commandByte=0, readByte=0, writeByte=0, cidByte=0, skip=0;
@@ -82,7 +84,7 @@ struct Wire {
         if(pc==p2m_layout::spi_tx+12 && skip && --skip==0) {
             m.writePort(0x41,0);--remaining;++injected;
         }
-        m.stepInstruction();
+        activity.step(m);
     }
 };
 
@@ -98,7 +100,7 @@ static void boot(P2000Machine &m,Wire &wire,bool success=true) {
     unsigned steps=0;
     while(++steps<30000000) {
         wire.step(m);
-        if(steps%1000==0 && screen(m).find(marker)!=std::string::npos)return;
+        if(steps%1000==0 && screen(m).find(marker)!=std::string::npos) {wire.activity.idle(m);return;}
     }
     throw std::runtime_error("Boot failed: "+screen(m));
 }
@@ -113,6 +115,7 @@ static void run(P2000Machine &m,const std::vector<unsigned char> &code,Wire &wir
     unsigned steps=0;
     while(!m.peekMemory(0x9e71) && ++steps<30000000)wire.step(m);
     require(steps<30000000,"CRC call did not return");
+    wire.activity.idle(m);
 }
 static unsigned call(P2000Machine &m,unsigned address,Wire &wire,unsigned bc=0,unsigned de=0) {
     run(m,{0xf3,0x31,0,0x95,0x01,(unsigned char)bc,(unsigned char)(bc>>8),

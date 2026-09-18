@@ -103,6 +103,7 @@ int main(int argc, char **argv) {
         while (!formatDone && formatSteps++ < 10000000) {
             const auto pc=m.programCounter();
             if (m.peekMemory(pc)==0xd3 && m.peekMemory(pc+1)==0x4d) {
+                require(m.sdCartridge().leds()==2,"RAM format did not light WRITE LED");
                 if (formattedBytes%1024==0) {
                     const auto activity=screen(m).substr(18*80+1,79);
                     require(activity.find(ramPrefix)==0,"Missing RAM format activity");
@@ -116,6 +117,7 @@ int main(int argc, char **argv) {
                 formatDone=screen(m).find("128/128 KiB OK")!=std::string::npos;
         }
         require(formatDone && formattedBytes==128*1024,"RAM format did not finish at 128 KiB");
+        require(m.sdCartridge().leds()==0,"RAM format left activity LED on");
         frames(m,300);
         require(screen(m).find("BOOT COMPLETE") != std::string::npos,
                 "Kernel did not boot: PC=" + std::to_string(m.programCounter()) + " " + screen(m));

@@ -14,7 +14,7 @@ eleven 8 MiB CP/M volumes. CP/M cannot access files in the FAT32 partition.
 | A: | SYSTEM | System utilities and test programs |
 | B: | TOOLS | BDS C, libraries, examples, and serial diagnostics |
 | C: | ZORK | Zork I, II, and III |
-| D: | GAMES | Empty |
+| D: | CALC | SuperCalc2, installer, help and sample worksheets |
 | E: | BASIC | Microsoft BASIC-80 and an example |
 | F: | ASM | Empty |
 | G: | SOURCE | Empty |
@@ -163,3 +163,48 @@ python3 tools/sd_image.py build/my-card.img --kernel build/kernel.bin \
 The builder refuses to overwrite an existing output. Omitting `--kernel`
 creates a data-only, non-bootable image. See the [source guide](source-guide.md)
 for the complete build and test workflow.
+
+## Cartridge activity LEDs
+
+READ lights during SD reads/status commands and L: SRAM reads. WRITE lights
+while writing SD sectors or L: SRAM, including the cold-boot format. The LEDs
+turn off when the physical operation finishes or fails. Cached operations may
+not flash them; buffered writes flash WRITE when they are actually flushed.
+
+## Full-screen applications
+
+The 80x24 console now accepts VT52-style cursor positioning, movement and
+erasure through BDOS 2/6/9 and BIOS CONOUT. See [terminal controls and SuperCalc
+configuration](terminal.md). `BANKTEST` uses the same interface for its live
+per-bank dashboard. Install the rebuilt ROM and SD kernel together, then use
+the new `BANKTEST.COM` from A: in the generated image.
+
+## SuperCalc2
+
+SuperCalc2 1.00 is ready to use on D: with the P2000M terminal profile:
+
+```text
+A>D:
+D>SC2
+```
+
+Press Return to open the spreadsheet, or `?` for help. Use the arrow keys to
+move between cells. Enter a number or formula and press Return; for example,
+enter `6`, `7`, and `A1*B1` in successive cells to get `42` in C1. `=A1` followed
+by Return moves directly to A1. The active cell is shown in inverse video.
+
+- Load a sample: `/L`, then `SAMPLE` and Return, then `A` for all.
+- Save your work: `/S`, then a filename and Return, then `A` for all.
+- Exit: `/Q`, then `Y`. This edition returns to the A: prompt.
+
+Wait for each prompt, especially during overlay loading. Keep `SC2.OVL` and
+`SC2.HLP` on D: with `SC2.COM`. The bundled copy needs no installer run.
+`INSTALL` is included for later customization; choosing its stock VT52 profile
+would reset the P2000 arrow and highlighting settings.
+
+![SuperCalc2 sample worksheet](screenshots/supercalc.png)
+
+See [tested terminal configuration](terminal.md#bundled-supercalc2) and
+[software provenance](../assets/supercalc/README.md). The emulator regression
+covers calculations, navigation, help and save/reload across a fresh boot;
+actual hardware testing remains to be done.

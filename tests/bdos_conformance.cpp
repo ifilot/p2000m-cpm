@@ -173,6 +173,46 @@ static void corruption(Harness &h,const std::string &card) {
     require(h.bdos(20,0x8200)==0,"Read restored card");require(h.bdos(20,0x8200)==1,"Normal EOF no longer works");
 }
 
+// Exercise the actual resident parser through each public output path.
+static void terminal(Harness &h) {
+    auto out=[&](const std::string &s) {for(unsigned char c:s)h.bdos(6,c);};
+    auto pos=[&](unsigned y,unsigned x) {out(std::string("\x1bY")+char(32+y)+char(32+x));};
+    auto cell=[&](unsigned y,unsigned x) {return h.m.characters()[y*80+x];};
+    out("\f");
+    // Stream one command across all three BDOS entry points and BIOS CONOUT.
+    h.bdos(2,27);h.bdos(6,'Y');h.bios(4,32+4);
+    h.m.pokeMemory(0x8700,32+9);h.m.pokeMemory(0x8701,'X');h.m.pokeMemory(0x8702,'$');
+    h.bdos(9,0x8700);require(cell(4,9)=='X',"Split cursor address across APIs");
+    out("\x1b" "A" "U" "\x1b" "B" "D" "\x1b" "D" "L" "\x1b" "C" "R");
+    require(cell(3,10)=='U' && cell(4,11)=='L' && cell(4,13)=='R',"Relative cursor movement");
+    pos(0,0);out("\x1b" "A" "\x1b" "D" "T");require(cell(0,0)=='T',"Top/left clamp");
+    pos(23,79);out("\x1b" "B" "\x1b" "C" "\x1b" "D" "Z");
+    require(cell(23,78)=='Z' && cell(0,0)=='T',"Bottom/right movement scrolled");
+    out("\x1bY\x7f\x7f\x1b" "D" "C");require(cell(23,78)=='C',"High coordinates escaped video");
+    out("\x1bY\x01\x02" "N");require(cell(0,0)=='N',"Low coordinates escaped video");
+    // Erasure includes its cursor, clears attributes, and preserves cursor/rendition.
+    out("\f\x1b" "p");pos(5,10);out("ABCDE");pos(5,12);out("\x1bK");
+    require(cell(5,11)=='B' && cell(5,12)==' ' && h.m.attributes()[5*80+12]==0,"Erase line boundary/attribute");
+    out("X");require(cell(5,12)=='X' && h.m.attributes()[5*80+12]==8,"Erase changed cursor/rendition");
+    pos(6,0);out("NEXT");pos(5,12);out("\x1bJ");
+    require(cell(5,11)=='B' && cell(6,0)==' ',"Erase screen boundary");
+    out("\x1b" "q" "Q");require(cell(5,12)=='Q' && h.m.attributes()[5*80+12]==0,"Normal rendition");
+    out("\x1bH" "HOME");require(screen(h.m).substr(0,4)=="HOME","Cursor home");
+    out("\x1bY\x1bH" "R" "\x1b?" "U" "\x1bY\x18" "C");
+    require(screen(h.m).substr(0,3)=="RUC","Escape restart/unknown/CAN recovery");
+    out("\x1bY\f" "F");require(cell(0,0)=='F' && cell(5,11)==' ',"FF did not reset parser");
+    // Existing wrapping and scrolling must move both character and attribute planes.
+    out("\f\x1b" "p");pos(1,0);out("M");pos(23,79);out("W");
+    require(cell(0,0)=='M' && h.m.attributes()[0]==8 && cell(22,79)=='W' && cell(23,0)==' ',"Scroll text/attributes");
+    for(unsigned x=0;x<80;++x)require(h.m.attributes()[23*80+x]==0,"Scroll retained last-row attributes");
+    // An application may exit in the middle of an escape with inverse enabled.
+    out("\x1bY");h.start(p2m_layout::warm_boot,0);
+    for(unsigned i=0;i<100;++i)h.m.runFrame();
+    out("R");
+    require(screen(h.m).find("A>R")!=std::string::npos,"Warm boot did not reset partial escape");
+    auto at=screen(h.m).find("A>R");require(h.m.attributes()[at+2]==0,"Warm boot retained inverse mode");
+}
+
 static void console(Harness &h) {
     h.bdos(6,12);
     h.line({'a',9,8,'b',13},{'a','b'});
@@ -216,7 +256,7 @@ static void console(Harness &h) {
 int main(int argc,char **argv) {
     try {
         require(argc==4,"Usage: bdos_conformance-test EMULATOR BUILD SCRATCH_CARD");
-        Harness h(argv[1],argv[2],argv[3]);files(h);corruption(h,argv[3]);console(h);
-        std::cout<<"PASS: protected extents, wildcard identity, OPEN CR, raw searches, login vectors, invalid blocks, hard I/O errors, line editing and cooked/raw flow control\n";
+        Harness h(argv[1],argv[2],argv[3]);files(h);corruption(h,argv[3]);terminal(h);console(h);
+        std::cout<<"PASS: protected extents, wildcard identity, OPEN CR, raw searches, login vectors, invalid blocks, hard I/O errors, cursor addressing/erasure/rendition, line editing and cooked/raw flow control\n";
     } catch(const std::exception &e) {std::cerr<<e.what()<<'\n';return 1;}
 }

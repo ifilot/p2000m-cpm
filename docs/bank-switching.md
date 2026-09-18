@@ -6,8 +6,8 @@ Reviewed against the sibling `p2000m-cpm-coboard` checkout at `b7ee7db`:
 Hardware BANKTEST subsequently exposed a video overlap in revision 0.6;
 revision 0.7 corrects the expansion address during banked 7000–7FFF accesses.
 Physical retesting of revision 0.7 then failed at the co-board enable step.
-Do not treat it as a working hardware fix; restore the previously booting 0.6
-image while investigating. The CP/M boot command remains 80h, overlay disabled.
+Subsequent hardware testing confirmed working banking; the exact final CPLD
+image was not recorded here. The CP/M boot command remains 80h, overlay disabled.
 The schematic uses CY62128 SRAM; the CPLD equations define the interface below.
 The corrected CPLD source passes verification and fitting. The emulator and bundled test core now implement the extra banks, and
 [BANKTEST](../programs/banktest/README.md) is included on A: for physical tests.
@@ -43,7 +43,7 @@ ownership rules. All ports 20h–2Fh alias the same latch.
 ## Recommendation
 
 Implement optional banked **storage**, keeping the ordinary application map
-and 50.5 KiB TPA. Start with a bank diagnostic and emulator support, then a
+and 50 KiB TPA. Start with a bank diagnostic and emulator support, then a
 separate RAM drive (provisionally M:). With the existing 1 KiB allocation blocks
 and a 2 KiB directory, 112 KiB raw would provide 110 KiB usable. Keeping it
 separate from L: preserves L:'s existing geometry and behavior on older boards.
@@ -66,7 +66,7 @@ is not needed to use these banks and would be a separate project.
 
 ## Why the middle window is manageable
 
-The resident kernel at CB00–D5FF, ROM routines, private BDOS/system stacks,
+The resident kernel at C900–D5FF, ROM routines, private BDOS/system stacks,
 keyboard state and disk buffers all lie outside 4000–7FFF. These are suitable
 places for a short bank-copy service. However, a caller's DMA buffer, stack or
 code may occupy the window, including buffers crossing its boundaries.
@@ -105,13 +105,14 @@ must also place its switching routine and stack outside the window.
 - Provide an explicit configuration option initially. There is no advertised
   hardware ID. A later probe must save and restore touched RAM and check bank
   independence; a write/read through one bank is not sufficient on an old board.
-- Verify all banks on hardware, plus isolation of bank zero and preservation
-  of underlying expansion RAM. Include warm-boot preservation and cold format.
+- Completed: BANKTEST passed on hardware, including all seven banks, bank-zero
+  isolation and underlying RAM preservation. A future storage driver still
+  needs warm-boot preservation and cold-format tests.
 - Test DMA below, inside, above and across both window boundaries, direct BIOS
   calls with a stack inside the window, interrupt-state restoration, and failure
   paths restoring the normal map.
-- Budget resident code before implementation. The present layout has 16 bytes
-  of resident code margin and 99 spare ROM bytes across two gaps. A complete
+- Budget resident code before implementation. The present layout has 246 bytes
+  of resident code margin and 94 spare ROM bytes across two gaps. A complete
   driver will require relocation or a deliberate TPA tradeoff. Extra banked
   capacity does not remove the need for fixed-memory entry/copy code.
 

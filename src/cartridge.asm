@@ -246,6 +246,8 @@ spi_tx:
 ; Tail-calls spi_tx, so its RET returns to the original caller.
 ; ----------------------------------------------------------------------------
 sd_close:
+    ld a,0                 ; preserve flags: spi/close callers rely on them
+    out (0x44),a           ; both cartridge activity LEDs off, also on errors
     ld a,0xff
     out (0x42),a
     jp spi_tx
@@ -301,6 +303,15 @@ sd_ok:
 sd_command:
     call sd_close
     out (0x43),a
+    ; Port 44h: bit 0 READ, bit 1 WRITE. Keep the LED on through the
+    ; response, payload/CRC and write-busy wait; sd_close clears it.
+    ld a,(hl)
+    cp 0x58                ; CMD24 writes; other supported commands read/status
+    ld a,1
+    jr nz,sd_command_led
+    inc a
+sd_command_led:
+    out (0x44),a
     ld a,(hl)
     and 0x3f
     ld (sd_last_command),a
@@ -579,29 +590,6 @@ write_wait:
     or c
     jr nz,write_wait
     jp sd_fail
-; CRC7 accumulator E uses bits 7..1; polynomial x^7+x^3+1, initial zero.
-; A=input byte; clobbers AF/B/E, preserves C/D/HL.
-sd_crc7_byte:
-    xor e
-    ld b,8
-crc7_bit:
-    add a,a
-    jr nc,crc7_next
-    xor 0x12
-crc7_next:
-    djnz crc7_bit
-    ld e,a
-    ret
-
-; Consume both wire CRC bytes, including on mismatch. Z=valid; clobbers AF/DE.
-sd_crc16_check:
-    call spi_rx
-    xor d
-    ld d,a
-    call spi_rx
-    xor e
-    or d
-    ret
 sd_crc_fail:
     ld a,8               ; CRC error bit, also used in SD R1 responses
     ld (sd_last_response),a

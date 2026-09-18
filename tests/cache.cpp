@@ -1,5 +1,6 @@
 #include "p2000_machine.h"
 #include "memory_layout.h"
+#include "activity.h"
 #include <cstdint>
 #include <fstream>
 #include <filesystem>
@@ -12,7 +13,7 @@ static void require(bool ok,const std::string &why) {if(!ok)throw std::runtime_e
 static unsigned word(P2000Machine &m,unsigned a) {return m.peekMemory(a)|(m.peekMemory(a+1)<<8);}
 static std::string screen(P2000Machine &m) {return std::string((const char*)m.characters(),1920);}
 static void frames(P2000Machine &m,int n) {while(n--)m.runFrame();}
-struct Traffic {unsigned reads=0,writes=0; std::vector<std::uint32_t> commits;};
+struct Traffic {unsigned reads=0,writes=0; std::vector<std::uint32_t> commits; unsigned ledWrites=0;};
 
 // Run real Z80 BIOS/BDOS code, observing the unchanged ROM I/O entry vectors.
 // The NMI first enters a spin loop, so no I/O escapes the instruction observer.
@@ -26,6 +27,7 @@ static unsigned call(P2000Machine &m,unsigned address,unsigned bc=0,unsigned de=
         0x32,0x70,0x9e,0x22,0x72,0x9e,0x3e,0x5a,0x32,0x71,0x9e,0x76};
     for(unsigned i=0;i<sizeof(code);++i)m.pokeMemory(0x8000+i,code[i]);
     m.pokeMemory(0x9e71,0);
+    Activity activity;
     unsigned steps=0;
     while(m.peekMemory(0x9e71)!=0x5a && steps++<20000000) {
         if(m.programCounter()==0xe006 &&
@@ -39,9 +41,11 @@ static unsigned call(P2000Machine &m,unsigned address,unsigned bc=0,unsigned de=
                 traffic->commits.push_back(word(m,p2m_layout::rom_workspace)|(std::uint32_t(word(m,p2m_layout::rom_workspace+2))<<16));
             }
         }
-        m.stepInstruction();
+        activity.step(m);
     }
     require(steps<20000000,"Cache call failed to return");
+    activity.idle(m);
+    if(traffic)traffic->ledWrites+=activity.ledWrites;
     for(unsigned base : {p2m_layout::bdos_stack_bottom,p2m_layout::system_stack_bottom,p2m_layout::keyboard_stack_bottom})
         for(unsigned i=0;i<16;++i)
             require(m.peekMemory(base+i)==0xa5,"Cache/recovery exceeded resident stack budget");
@@ -137,6 +141,25 @@ int main(int argc,char **argv) {
             std::cout<<"PASS: CLOSE ordering, directory-write failure retention, retry and warm/cold-boot recovery\n";
         }
         P2000Machine m;boot(m,emu,build,card);
+        // A cached read and a dirty-cache update must not touch the LED latch.
+        select(m,0,700);
+        Traffic miss;require(bios(m,13,0,&miss)==0,"LED read miss failed");
+        require(miss.ledWrites>0,"SD read did not drive LED latch");
+        Traffic hit;require(bios(m,13,0,&hit)==0,"LED cache hit failed");
+        require(hit.ledWrites==0,"Cache hit flashed cartridge LEDs");
+        pattern(m,0x42);
+        Traffic staged;require(bios(m,14,0,&staged)==0,"LED buffered write failed");
+        require(staged.ledWrites==0,"Buffered-only write flashed cartridge LEDs");
+        Traffic flush;require(bios(m,17,0,&flush)==0,"LED flush failed");
+        require(flush.ledWrites>0,"Physical SD write did not drive LED latch");
+        bios(m,9,11);bios(m,10,16);bios(m,11,0);bios(m,12,0x8400);
+        Traffic ram;
+        require(bios(m,14,0,&ram)==0 && bios(m,13,0,&ram)==0,"LED SRAM transfer failed");
+        require(ram.ledWrites==4,"SRAM must set/clear LEDs once per record");
+        bios(m,10,32);Traffic invalid;
+        require(bios(m,13,0,&invalid)==1 && invalid.ledWrites==0,
+                "Rejected SRAM request touched activity latch");
+        call(m,5,13);
         auto t=workload(m,true);
         require(t.reads==16 && t.writes==8,"Sequential sector coalescing regressed");
         std::cout<<"PASS: 32 writes + 32 reads: "<<t.reads<<" sector reads, "<<t.writes<<" sector writes\n";

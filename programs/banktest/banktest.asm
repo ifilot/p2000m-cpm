@@ -29,8 +29,8 @@ start:
     ld (phase),a
 pass:
     call restore_interrupts
-    ld de,writing_text
-    call puts
+    xor a
+    ld (operation),a
     ld a,1
     ld (bank),a
 write_bank:
@@ -42,13 +42,14 @@ write_bank:
     call check_guards
     jp nz,failed
     call normal_map
+    call show_ok
     ld a,(bank)
     inc a
     ld (bank),a
     cp 8
     jr nz,write_bank
-    ld de,verifying_text
-    call puts
+    ld a,11
+    ld (operation),a
     ld a,1
     ld (bank),a
 verify_bank:
@@ -61,6 +62,7 @@ verify_bank:
     call check_guards
     jp nz,failed
     call normal_map
+    call show_ok
     ld a,(bank)
     inc a
     ld (bank),a
@@ -220,16 +222,44 @@ check_guard:
     djnz check_guard
     xor a
     ret
+; Update only with normal memory mapping, outside the tested window.
 show_bank:
+    call cell_position
+    ld de,running_text
+    jp puts
+show_ok:
+    call cell_position
+    ld de,ok_text
+    jp puts
+cell_position:
     ld a,(bank)
-    add a,'0'
-    ld e,a
-    ld c,2
-    call 5
-    ret
+    add a,32+6
+    ld (cell_row),a
+    ld a,(phase)
+    or a
+    ld a,20
+    jr z,cell_first
+    ld a,44
+cell_first:
+    ld b,a
+    ld a,(operation)
+    add a,b
+    add a,32
+    ld (cell_column),a
+    ld de,cell_escape
+    jp puts
+; Use direct output: Ctrl-C/type-ahead must not abandon RAM restoration.
 puts:
-    ld c,9
-    jp 5
+    ld a,(de)
+    cp '$'
+    ret z
+    push de
+    ld e,a
+    ld c,6
+    call 5
+    pop de
+    inc de
+    jr puts
 hex_byte:
     push af
     rrca
@@ -246,24 +276,51 @@ hex_digit:
     add a,7
 hex_emit:
     ld e,a
-    ld c,2
+    ld c,6
     jp 5
 entry_sp: dw 0
 entry_flags: db 0
 phase: db 0
 bank: db 0
+operation: db 0
 bad_address: dw 0
 expected: db 0
 actual: db 0
 guard_addresses: dw 0x3fff,0x8000,0xa000,0xbfff,0xc000,0xdfff
 guard_values: defs 6
-banner: db 'BANKTEST - revised co-board 112 KiB banking test',13,10
-    db 'Overwrites banks 1-7; preserves normal window RAM.',13,10,'$'
-writing_text: db 13,10,'Write banks:  $'
-verifying_text: db 13,10,'Verify banks: $'
-pass_text: db 13,10,'BANKTEST PASS - 7 banks, 2 patterns, normal RAM intact',13,10,'$'
-fail_text: db 13,10,'BANKTEST FAIL bank $'
+cell_escape: db 27,'Y'
+cell_row: db 0
+cell_column: db 0
+    db '$'
+running_text: db 27,'p',' BUSY ',27,'q','$'
+ok_text: db '  OK  $'
+banner: db 12,27,'Y',33,34,27,'p'
+    db '  BANKTEST  /  P2000M MEMORY DIAGNOSTICS                              '
+    db 27,'q',13,10,13,10
+    db '  7 banks x 16 KiB = 112 KiB   |   Window 4000-7FFF',13,10
+    db '  Overwrites banks 1-7. Normal window RAM is saved and restored.',13,10
+    db '                    ADDRESS PATTERN         INVERTED PATTERN',13,10
+    db '  BANK / SIZE       WRITE      VERIFY       WRITE      VERIFY',13,10
+    db '   01  / 16 KiB       --         --           --         --',13,10
+    db '   02  / 16 KiB       --         --           --         --',13,10
+    db '   03  / 16 KiB       --         --           --         --',13,10
+    db '   04  / 16 KiB       --         --           --         --',13,10
+    db '   05  / 16 KiB       --         --           --         --',13,10
+    db '   06  / 16 KiB       --         --           --         --',13,10
+    db '   07  / 16 KiB       --         --           --         --',13,10
+    db 13,10
+    db '  Checks: bank isolation, address patterns, fixed RAM and bank zero.',13,10
+    db '$'
+pass_text: db 27,'Y',32+17,34,27,'p',' PASS ',27,'q'
+    db '  BANKTEST PASS - 7 banks, 2 patterns, normal RAM intact',13,10
+    db '  Normal mapping restored. Test complete.',13,10,'$'
+fail_text: db 27,'Y',32+17,34,27,'p',' FAIL ',27,'q'
+    db '  BANKTEST FAIL bank $'
 address_text: db ' addr $'
 expected_text: db ' expected $'
 actual_text: db ' got $'
-newline: db 13,10,'$'
+newline: db 13,10,'  Normal mapping and window RAM restored.',13,10,'$'
+; Code/data and downward-growing stack must remain below the banked window.
+if $ > 0x3000
+    defs -1
+endif

@@ -269,7 +269,9 @@ ram_transfer:
     ld b,128
     ld a,(writing)
     or a
-    jr nz,ram_write_byte
+    jr nz,ram_write
+    inc a                  ; READ LED for physical SRAM accesses only
+    out (0x44),a
 ram_read_byte:
     call ram_address
     in a,(0x4d)
@@ -278,7 +280,11 @@ ram_read_byte:
     inc hl
     djnz ram_read_byte
     xor a
+    out (0x44),a
     ret
+ram_write:
+    ld a,2                 ; same WRITE LED as SD sector writes
+    out (0x44),a
 ram_write_byte:
     call ram_address
     ld a,(de)
@@ -287,6 +293,7 @@ ram_write_byte:
     inc hl
     djnz ram_write_byte
     xor a
+    out (0x44),a
     ret
 
 ; ----------------------------------------------------------------------------

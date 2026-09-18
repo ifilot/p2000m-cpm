@@ -36,3 +36,29 @@ sd_crc16_byte:
     ld e,b
     pop bc
     ret
+
+; These helpers share the ROM tail with CRC16, leaving space for cartridge
+; activity control below the fixed IM2 vector. No additional resident RAM.
+; CRC7 accumulator E uses bits 7..1; polynomial x^7+x^3+1, initial zero.
+; A=input byte; clobbers AF/B/E, preserves C/D/HL.
+sd_crc7_byte:
+    xor e
+    ld b,8
+crc7_bit:
+    add a,a
+    jr nc,crc7_next
+    xor 0x12
+crc7_next:
+    djnz crc7_bit
+    ld e,a
+    ret
+
+; Consume both wire CRC bytes, including on mismatch. Z=valid; clobbers AF/DE.
+sd_crc16_check:
+    call spi_rx
+    xor d
+    ld d,a
+    call spi_rx
+    xor e
+    or d
+    ret

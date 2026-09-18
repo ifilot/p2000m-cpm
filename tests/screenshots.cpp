@@ -34,6 +34,15 @@ int main(int argc, char **argv) {
         type(machine, "STAT\n"); prompt(machine);
         require(screen(machine).find("R/W, Space:") != std::string::npos, "STAT failed");
         capture(machine, std::string(argv[2]) + "/screenshot-session");
+        type(machine, "BANKTEST\n"); prompt(machine);
+        require(screen(machine).find("BANKTEST PASS") != std::string::npos, "BANKTEST failed");
+        capture(machine, std::string(argv[2]) + "/screenshot-banktest");
+        sc_start(machine);
+        sc_send(machine,"/L");wait_text(machine,"Enter File Name");
+        sc_send(machine,"SAMPLE\n");wait_text(machine,"A(ll)");
+        sc_send(machine,"A");wait_text(machine,"NET INCOME");
+        sc_arrow(machine,2,5);sc_arrow(machine,2,7);sc_active(machine,"B4");
+        capture(machine, std::string(argv[2]) + "/screenshot-supercalc");
     } catch (const std::exception &error) {
         std::cerr << error.what() << '\n';
         return 1;

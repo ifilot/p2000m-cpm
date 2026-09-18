@@ -59,7 +59,7 @@ int main(int argc,char **argv) {
                 while(cpu.pc && steps++<10000000) {
                     if(cpu.pc==5) {
                         check(r.bank==0,"Diagnostic called BDOS with bank mapped");
-                        if(cpu.c==2)text+=char(cpu.e);
+                        if(cpu.c==2 || cpu.c==6)text+=char(cpu.e);
                         else if(cpu.c==9) {
                             unsigned a=(cpu.d<<8)|cpu.e;
                             for(unsigned n=0;n<1024 && read(&r,a)!='$';++n,++a)text+=char(read(&r,a));

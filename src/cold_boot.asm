@@ -124,6 +124,8 @@ disk_extra_entries:
     call kernel_activity
     ld hl,boot_ram_first
     call kernel_activity
+    ld a,2
+    out (0x44),a           ; formatting is a physical SRAM write
     ld d,0
 ram_format_bank:
     ld a,d
@@ -153,6 +155,8 @@ ram_format_byte:
     jr z,ram_format_done
     jr ram_format_bank
 ram_format_done:
+    xor a
+    out (0x44),a
     ld hl,boot_ram_ok
     call kernel_activity
     xor a

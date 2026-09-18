@@ -96,6 +96,7 @@ cold_restart:
 ; ----------------------------------------------------------------------------
 warm_boot:
     ld sp,system_stack_top
+    call terminal_reset
     ; Applications may return after a bare CR or without a final newline.
     call ccp_newline
 warm_start:
@@ -162,6 +163,8 @@ track: dw 0
 record: dw 0
 dma: dw 0x80
 cursor: dw 0xf000
+
+include 'terminal.asm'
 
 resident_code_end:
 ; DEFS rejects negative padding: never silently grow into either system stack.

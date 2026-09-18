@@ -1,4 +1,4 @@
-; Single source of truth for the 0.3 resident layout (also read by host tools).
+; Single source of truth for the resident layout (also read by host tools).
 boot_loader_base: equ 0x7000
 keyboard_stack_bottom: equ 0xdc00
 keyboard_stack_top: equ 0xdc80
@@ -7,8 +7,8 @@ kernel_load: equ 0xa000
 kernel_end: equ 0xd800
 kernel_bytes: equ 0x3800
 kernel_sectors: equ 28
-tpa_limit: equ 0xcb00
-resident_base: equ 0xcb00
+tpa_limit: equ 0xc900
+resident_base: equ 0xc900
 rom_filesystem_base: equ 0xe800
 rom_end: equ 0xf000
 resident_code_limit: equ 0xd600

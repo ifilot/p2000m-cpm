@@ -37,7 +37,7 @@ class MemoryLayoutTests(unittest.TestCase):
                              'Version-only change must not alter link addresses')
 
     def test_memory_regions(self):
-        self.assertEqual(TPA_BYTES, 51712)
+        self.assertEqual(TPA_BYTES, 51200)
         self.assertEqual(LAYOUT['tpa_limit'] & 255, 0)
         self.assertEqual(LAYOUT['kernel_end'], LAYOUT['sector_buffer'])
         self.assertGreaterEqual(LAYOUT['rom_workspace'], LAYOUT['kernel_end'])
@@ -51,7 +51,7 @@ class MemoryLayoutTests(unittest.TestCase):
         self.assertEqual(LAYOUT['keyboard_stack_top'], LAYOUT['allocation_c'])
         self.assertEqual(LAYOUT['keyboard_queue'], 0xdcc0)
         self.assertEqual(LAYOUT['keyboard_queue'] + 64, 0xdd00)
-        self.assertIn('50.50 KiB (51712 bytes)', TPA_TEXT)
+        self.assertIn('50.00 KiB (51200 bytes)', TPA_TEXT)
 
     def test_link_from_clean_directory_is_reproducible(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -88,7 +88,7 @@ Suggested purpose labels (organizational guidance, not restrictions):
 | A: | SYSTEM | CP/M system utilities and essential commands |
 | B: | TOOLS | Additional utilities and applications |
 | C: | ZORK | Zork interpreter, game data and saves |
-| D: | GAMES | Other games and their saves |
+| D: | CALC | SuperCalc2, help, samples and saved worksheets |
 | E: | BASIC | BASIC interpreters and programs |
 | F: | ASM | Assemblers, linkers and debugging tools |
 | G: | SOURCE | Development source files and projects |

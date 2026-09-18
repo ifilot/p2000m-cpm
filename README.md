@@ -9,7 +9,7 @@ P2000M. It uses the CP/M co-board, a 16 KiB boot cartridge in port 1, and an
 SD/SRAM cartridge in port 2; no floppy hardware is required.
 
 The supplied SD image includes the command processor, PIP, ASM, LOAD, DDT,
-DUMP, ED, STAT, Microsoft BASIC-80, BDS C, Zork I–III, diagnostics, and twelve
+DUMP, ED, STAT, Microsoft BASIC-80, BDS C, SuperCalc2, Zork I–III, diagnostics, and twelve
 drives. Drive L: is a temporary 128 KiB SRAM disk; the other drives live on SD.
 
 ## Screenshots
@@ -60,6 +60,8 @@ A>B:
 B>CC CDEMO
 B>CLINK CDEMO
 B>CDEMO
+A>D:
+D>SC2
 A>E:
 E>MBASIC BASDEMO
 A>C:

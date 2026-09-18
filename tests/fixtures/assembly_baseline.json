@@ -1,13 +1,13 @@
 {
-  "description": "Version 0.4.0 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16 and shared release/link identity. Hardened allocation and I/O errors, protected extents, OPEN/search/login semantics and cooked console editing/flow control. Resident FCB helpers; 51712-byte TPA, 512 bytes below the previous layout. Cold RAM formatting displays progress every KiB. Retry budgets and IM2 keyboard unchanged.",
+  "description": "Version 0.4.1 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16, shared release/link identity, hardened BDOS and filesystem, physical SD/SRAM activity LEDs and KiB format progress. VT52-style console parser in resident RAM; 51200-byte TPA (512 bytes reserved for terminal support). Keyboard and disk geometry unchanged. D: dashboard label changed to CALC for bundled SuperCalc2.",
   "artifacts": {
     "src/cartridge.asm": {
       "bytes": 9612,
-      "sha256": "d0e33002c8e1715eeddbebdd3ab6e0252ded01556831d2735abe978ff8b7df47"
+      "sha256": "1061f3c8356065857970db53683a19f0cc78633c00d440af7a2180017abed582"
     },
     "src/kernel.asm": {
       "bytes": 14336,
-      "sha256": "529fd46cbe4b5fa6fb791282ccf661f7dcc66c4eea536da7cc28bd5a30b34a47"
+      "sha256": "d1baaa50c52074ce1dcfc95981317e9b55f1961c39de468886a3f0473289c1ac"
     },
     "programs/copy/copy.asm": {
       "bytes": 510,
@@ -30,8 +30,8 @@
       "sha256": "8ba35812ce3294ee14b5aed8460d10d26c96a1b1dc287f5f5d13da1386c7152f"
     },
     "tests/tpalimit.asm": {
-      "bytes": 51712,
-      "sha256": "f7451ca52e0cea83430118ce86329a8eefae38c0dc63398634e30c502530d68e"
+      "bytes": 51200,
+      "sha256": "dec1f2d9fae866041a8625c14c86962966944c446bc9c3508198406d5ffeecda"
     }
   }
 }

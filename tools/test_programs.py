@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 import shutil
 import unittest
-from build import CORE_FILES, LANGUAGE_FILES
+from build import CORE_FILES, LANGUAGE_FILES, SUPERCALC_FILES
 from sd_image import create_image, install_kernel
 from test_emulator import ROOT, EMULATOR, fat_digest, read_cpm_file, compile_harness
 
@@ -40,6 +40,12 @@ class BundledPrograms(unittest.TestCase):
         compile_harness(EMULATOR, "cpm")
 
     def run_program(self, name):
+        if name == 'SUPERCALC':
+            for source in SUPERCALC_FILES:
+                disk_name = (source.stem.ljust(8) + source.suffix[1:].ljust(3)).encode('ascii')
+                data = source.read_bytes()
+                self.assertEqual(read_cpm_file(BUILD / 'p2000m-sd-template.img', 3, disk_name),
+                                 data + b'\x1a' * (-len(data) % 128), source.name)
         if name == 'BANKTEST':
             expected = (BUILD / 'BANKTEST.COM').read_bytes()
             self.assertEqual(read_cpm_file(BUILD / 'p2000m-sd-template.img', 0, b'BANKTESTCOM'),
@@ -76,7 +82,7 @@ class BundledPrograms(unittest.TestCase):
             if name == 'COPYEXISTS':
                 language_files[1].append(existing)
             create_image(card, files, files_by_drive=language_files)
-            if name.startswith('ZORK'):
+            if name.startswith('ZORK') or name == 'SUPERCALC':
                 shutil.copyfile(BUILD / 'p2000m-sd-template.img', card)
             install_kernel(card, (BUILD / 'kernel.bin').read_bytes())
             before = fat_digest(card)
@@ -84,6 +90,15 @@ class BundledPrograms(unittest.TestCase):
                                  capture_output=True, text=True, timeout=180)
             self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
             self.assertEqual(fat_digest(card), before, 'FAT32 changed')
+            if name == 'SUPERCALC':
+                saved = read_cpm_file(card, 3, b'SCTEST  CAL')
+                self.assertTrue(saved.startswith(b'SuperCalc ver.  1.00'))
+                self.assertGreater(len(saved), 512)
+                # New emulator instance: persistence must survive a full restart.
+                run = subprocess.run([str(BUILD / 'cpm-test'), str(EMULATOR), str(BUILD), str(card), 'SCRELOAD'],
+                                     capture_output=True, text=True, timeout=180)
+                self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+                self.assertEqual(fat_digest(card), before, 'FAT32 changed on reload')
             if name in ('PIP', 'COPY'):
                 self.assertEqual(read_cpm_file(card, 1, b'RESULT  BIN'), payload)
             elif name == 'COPYEXISTS':
@@ -105,7 +120,7 @@ class BundledPrograms(unittest.TestCase):
                 self.assertGreater(len(read_cpm_file(card, 1, b'CCHK    COM')), 128)
 
 
-for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'BANKTEST', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3', 'MBASIC', 'BDSC'):
+for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'BANKTEST', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3', 'MBASIC', 'BDSC', 'SUPERCALC'):
     setattr(BundledPrograms, 'test_' + program.lower(), lambda self, name=program: self.run_program(name))
 
 if __name__ == '__main__':

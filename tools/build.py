@@ -20,6 +20,8 @@ BASIC_FILES = [ROOT / 'assets/mbasic/MBASIC.COM', ROOT / 'programs/basdemo/BASDE
 BDS_FILES = sorted(p for p in (ROOT / 'assets/bdsc').iterdir() if p.suffix.upper() in
                    ('.COM', '.CRL', '.CCC', '.H', '.LBR', '.DOC')) + [ROOT / 'programs/cdemo/CDEMO.C']
 LANGUAGE_FILES = {1: BDS_FILES, 4: BASIC_FILES}
+SUPERCALC_FILES = sorted(p for p in (ROOT / 'assets/supercalc').iterdir()
+                         if p.suffix.upper() in ('.COM', '.OVL', '.HLP', '.DAT', '.CAL'))
 SERIAL_NAMES = ('SERPINS', 'SERTX', 'SERRX')
 
 
@@ -57,7 +59,7 @@ def main():
     image = BUILD / 'p2000m-sd-template.img'
     image.unlink(missing_ok=True)
     create_image(image, [BUILD / "HELLO.COM", BUILD / "CPMTEST.COM", BUILD / "COPY.COM", BUILD / "RAMTEST.COM", BUILD / "BANKTEST.COM", BUILD / "SYNC.COM"] + CORE_FILES,
-                 files_by_drive={2: zork, **LANGUAGE_FILES,
+                 files_by_drive={2: zork, 3: SUPERCALC_FILES, **LANGUAGE_FILES,
                                  1: BDS_FILES + [BUILD / (name + '.COM') for name in SERIAL_NAMES]})
     install_kernel(image, kernel)
     # Deterministic gzip envelope; SOURCE_DATE_EPOCH fixes embedded timestamps.
@@ -66,6 +68,8 @@ def main():
             while chunk := source.read(1024 * 1024):
                 archive.write(chunk)
     metadata['zork_sources'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in zork}
+    metadata['supercalc_sources'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                                     for p in SUPERCALC_FILES}
     metadata['language_sources'] = {chr(65 + drive):
         {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in files}
         for drive, files in LANGUAGE_FILES.items()}

@@ -53,20 +53,25 @@ keys_shift:
 
 ; ----------------------------------------------------------------------------
 ; Routine: console_output
-; Output one 7-bit character or handle a simple terminal control.
+; Output one 7-bit character or feed the persistent terminal parser.
 ;
 ; Inputs:   C = character.
 ; Outputs:  Video/cursor updated; all input registers and flags restored.
 ; Clobbers: No general registers or flags; cursor, column and video may change.
 ;
 ; CR moves to column zero; LF advances a row; BS moves left; TAB emits
-; spaces to the next stop; FF clears. Other controls are ignored.
+; spaces to the next stop; FF clears. ESC commands are in terminal.asm;
+; CAN cancels a partial command. See docs/terminal.md for the output contract.
 ; ----------------------------------------------------------------------------
 console_output:
     push af
     push bc
     push de
     push hl
+    ld a,c
+    and 0x7f
+    call terminal_escape
+    jr c,terminal_done
     ld a,c
     and 0x7f
     cp 12
@@ -118,20 +123,8 @@ terminal_bs:
     ld (cursor),hl
     jr terminal_done
 terminal_clear:
-    ld hl,0xf000
-    ld de,0xf001
-    ld bc,1919
-    ld (hl),' '
-    ldir
-    ld hl,0xf800
-    ld de,0xf801
-    ld bc,1919
-    ld (hl),0
-    ldir
-    ld hl,0xf000
-    ld (cursor),hl
-    xor a
-    ld (column),a
+    call terminal_home
+    call terminal_erase_screen
 terminal_done:
     pop hl
     pop de
@@ -160,7 +153,8 @@ terminal_native:
     push hl
     ld de,0x0800
     add hl,de
-    ld (hl),0
+    ld a,(terminal_attribute)
+    ld (hl),a
     pop hl
     inc hl
     ld a,(column)
