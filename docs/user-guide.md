@@ -103,6 +103,11 @@ can lose pending changes.
 `RAMTEST` performs the corresponding test on L:. Both may leave their test file
 after an abort or failure. Press Escape then C to cancel between records.
 
+`BANKTEST` on A: checks all seven extra 16 KiB banks on the modern-revised
+co-board. It overwrites those banks, saves/restores the ordinary RAM window,
+and leaves L: untouched. See the [hardware diagnostic guide](../programs/banktest/README.md)
+for output, requirements and limits.
+
 ## Included software
 
 The standard PIP, ASM, LOAD, DDT, DUMP, ED, and STAT binaries are installed on

@@ -226,6 +226,8 @@ void P2000Machine::installCoBoard()
 {
     m_coBoardInstalled = true;
     m_coBoardMapped = false;
+    m_coBoardBankEnabled = false;
+    m_coBoardBank = 0;
     // Real SRAM powers up with indeterminate contents; zero it so a fresh
     // install is at least deterministic.
     m_coBoardRam.fill(0);
@@ -238,6 +240,8 @@ void P2000Machine::removeCoBoard()
     // so the CPU immediately sees the stock decode again.
     m_coBoardInstalled = false;
     m_coBoardMapped = false;
+    m_coBoardBankEnabled = false;
+    m_coBoardBank = 0;
 }
 
 void P2000Machine::reset()
@@ -251,10 +255,11 @@ void P2000Machine::reset()
     m_cpmRamDiskBank = 0;
     m_cpmRamDiskPage = 0;
     m_cpmRamDiskOffset = 0;
-    // U4's latch is cleared by the reset line (R3 also pulls /RAMS3 back to
-    // deselected), so a reset always returns to the stock decode even if the
-    // board stays installed.
+    // Reset clears all CPLD control latches, returning to the stock map
+    // even when the board stays installed. SRAM contents survive reset.
     m_coBoardMapped = false;
+    m_coBoardBankEnabled = false;
+    m_coBoardBank = 0;
     m_ctcVector = 0x20;
     m_pendingCtcInterrupts = 0;
     m_ctc.fill({});
@@ -355,8 +360,9 @@ std::uint8_t P2000Machine::readPort(std::uint8_t port)
     }
 }
 
-void P2000Machine::writePort(std::uint8_t port, std::uint8_t value)
+void P2000Machine::writePort(std::uint16_t address, std::uint8_t value)
 {
+    const auto port = static_cast<std::uint8_t>(address);
     if ((port >> 4) == 4) { m_sd.writePort(port, value); return; }
     if (m_coBoardInstalled && port == 0x95) {
         m_cpmRamDiskBank = value;
@@ -398,11 +404,14 @@ void P2000Machine::writePort(std::uint8_t port, std::uint8_t value)
         m_outputLatch = value;
         break;
     case 0x2:
-        // U5 (74LS138) decodes the mirrored write-port range 0x20-0x2f and
-        // clocks U4, which latches D7 as /CPM_SEL. Without the board fitted
-        // there is no U4 to latch anything, so the write is a no-op.
-        if (m_coBoardInstalled)
+        // The CPLD atomically captures D7 (mode), D0 (overlay enable),
+        // and A11-A13 (bank). Immediate OUT drives A onto A8-A15; OUT (C)
+        // drives B there. Other devices continue decoding only A0-A7.
+        if (m_coBoardInstalled) {
             m_coBoardMapped = (value & 0x80) != 0;
+            m_coBoardBankEnabled = (value & 1) != 0;
+            m_coBoardBank = (address >> 11) & 7;
+        }
         break;
     case 0x5:
         m_soundLatch = value;
@@ -470,7 +479,7 @@ void P2000Machine::deliverPendingInterrupt()
     }
 }
 
-// Fixed CP/M decode from p2000m-cpm-coboard/cupl/p2000m-cpm-coboard.pld.
+// Revised CP/M decode from p2000m-cpm-coboard/cupl/p2000m-cpm-coboard.pld.
 // Motherboard RAM keeps CPU A0-A13: stock 6000-7fff becomes CP/M 2000-3fff,
 // and stock 8000-9fff becomes CP/M 0000-1fff. This is a property of the
 // hardware, independent of the cartridge. Expansion addresses translate by
@@ -479,6 +488,8 @@ std::uint8_t P2000Machine::readCoBoardMemory(std::uint16_t address) const
 {
     if (address < 0x4000)
         return m_ram[address ^ 0x2000];
+    if (address < 0x8000 && m_coBoardBankEnabled && m_coBoardBank != 0)
+        return m_coBoardRam[m_coBoardBank * 0x4000 + address - 0x4000];
     if (address < 0x8000)
         return m_ram[address]; // expansion RAM; same as stock a000-dfff
     if (address < 0xa000)
@@ -494,6 +505,8 @@ void P2000Machine::writeCoBoardMemory(std::uint16_t address, std::uint8_t value)
 {
     if (address < 0x4000)
         m_ram[address ^ 0x2000] = value;
+    else if (address < 0x8000 && m_coBoardBankEnabled && m_coBoardBank != 0)
+        m_coBoardRam[m_coBoardBank * 0x4000 + address - 0x4000] = value;
     else if (address < 0x8000)
         m_ram[address] = value;
     else if (address < 0xa000)
@@ -549,7 +562,7 @@ std::uint8_t P2000Machine::cpuPortIn(z80 *cpu, std::uint8_t port)
     return static_cast<P2000Machine *>(cpu->userdata)->readPort(port);
 }
 
-void P2000Machine::cpuPortOut(z80 *cpu, std::uint8_t port,
+void P2000Machine::cpuPortOut(z80 *cpu, std::uint16_t port,
                               std::uint8_t value)
 {
     static_cast<P2000Machine *>(cpu->userdata)->writePort(port, value);

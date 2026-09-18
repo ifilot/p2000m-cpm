@@ -1,5 +1,5 @@
 {
-  "description": "Version 0.4.0 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16 and shared release/link identity. Hardened allocation and I/O errors, protected extents, OPEN/search/login semantics and cooked console editing/flow control. Resident FCB helpers; 51712-byte TPA, 512 bytes below the previous layout. Retry budgets and IM2 keyboard unchanged.",
+  "description": "Version 0.4.0 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16 and shared release/link identity. Hardened allocation and I/O errors, protected extents, OPEN/search/login semantics and cooked console editing/flow control. Resident FCB helpers; 51712-byte TPA, 512 bytes below the previous layout. Cold RAM formatting displays progress every KiB. Retry budgets and IM2 keyboard unchanged.",
   "artifacts": {
     "src/cartridge.asm": {
       "bytes": 9612,
@@ -7,7 +7,7 @@
     },
     "src/kernel.asm": {
       "bytes": 14336,
-      "sha256": "2f927c73c25922a86704406e12af0bd16a139ddb8879cd1fe6c2c753c48cae4b"
+      "sha256": "529fd46cbe4b5fa6fb791282ccf661f7dcc66c4eea536da7cc28bd5a30b34a47"
     },
     "programs/copy/copy.asm": {
       "bytes": 510,

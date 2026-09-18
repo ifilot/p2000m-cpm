@@ -40,6 +40,10 @@ class BundledPrograms(unittest.TestCase):
         compile_harness(EMULATOR, "cpm")
 
     def run_program(self, name):
+        if name == 'BANKTEST':
+            expected = (BUILD / 'BANKTEST.COM').read_bytes()
+            self.assertEqual(read_cpm_file(BUILD / 'p2000m-sd-template.img', 0, b'BANKTESTCOM'),
+                             expected + b'\x1a' * (-len(expected) % 128))
         if name in ('MBASIC', 'BDSC'):
             drive = 4 if name == 'MBASIC' else 1
             for source in LANGUAGE_FILES[drive]:
@@ -49,7 +53,7 @@ class BundledPrograms(unittest.TestCase):
                                  data + b'\x1a' * (-len(data) % 128), source.name)
         with tempfile.TemporaryDirectory(prefix='p2000m-program-') as tmp:
             tmp = Path(tmp)
-            files = [*CORE_FILES, *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'SYNC'))]
+            files = [*CORE_FILES, *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'BANKTEST', 'SYNC'))]
             # More than one 32 KiB directory extent; binary data includes Ctrl-Z.
             payload = bytes(range(256)) * 145
             fixtures = {'PAYLOAD.BIN': payload, 'HEXTEST.BIN': bytes(range(128)),
@@ -101,7 +105,7 @@ class BundledPrograms(unittest.TestCase):
                 self.assertGreater(len(read_cpm_file(card, 1, b'CCHK    COM')), 128)
 
 
-for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3', 'MBASIC', 'BDSC'):
+for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'BANKTEST', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3', 'MBASIC', 'BDSC'):
     setattr(BundledPrograms, 'test_' + program.lower(), lambda self, name=program: self.run_program(name))
 
 if __name__ == '__main__':

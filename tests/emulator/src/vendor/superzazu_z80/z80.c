@@ -587,9 +587,11 @@ static void ind(z80* const z) {
 }
 
 static void outi(z80* const z) {
-  z->port_out(z, z->c, rb(z, get_hl(z)));
-  set_hl(z, get_hl(z) + 1);
+  const uint8_t value = rb(z, get_hl(z));
+  // Z80 block output drives decremented B on A8-A15 (Zilog UM0080).
   z->b -= 1;
+  z->port_out(z, get_bc(z), value);
+  set_hl(z, get_hl(z) + 1);
   z->zf = z->b == 0;
   z->nf = 1;
   z->mem_ptr = get_bc(z) + 1;
@@ -1203,7 +1205,7 @@ void exec_opcode(z80* const z, uint8_t opcode) {
 
   case 0xD3: {
     const uint8_t port = nextb(z);
-    z->port_out(z, port, z->a);
+    z->port_out(z, ((uint16_t)z->a << 8) | port, z->a);
     z->mem_ptr = (port + 1) | (z->a << 8);
   } break; // out (n), a
 
@@ -1632,15 +1634,15 @@ void exec_opcode_ed(z80* const z, uint8_t opcode) {
     }
     break; // indr
 
-  case 0x41: z->port_out(z, z->c, z->b); break; // out (c), b
-  case 0x49: z->port_out(z, z->c, z->c); break; // out (c), c
-  case 0x51: z->port_out(z, z->c, z->d); break; // out (c), d
-  case 0x59: z->port_out(z, z->c, z->e); break; // out (c), e
-  case 0x61: z->port_out(z, z->c, z->h); break; // out (c), h
-  case 0x69: z->port_out(z, z->c, z->l); break; // out (c), l
-  case 0x71: z->port_out(z, z->c, 0); break; // out (c), 0
+  case 0x41: z->port_out(z, get_bc(z), z->b); break; // out (c), b
+  case 0x49: z->port_out(z, get_bc(z), z->c); break; // out (c), c
+  case 0x51: z->port_out(z, get_bc(z), z->d); break; // out (c), d
+  case 0x59: z->port_out(z, get_bc(z), z->e); break; // out (c), e
+  case 0x61: z->port_out(z, get_bc(z), z->h); break; // out (c), h
+  case 0x69: z->port_out(z, get_bc(z), z->l); break; // out (c), l
+  case 0x71: z->port_out(z, get_bc(z), 0); break; // out (c), 0
   case 0x79:
-    z->port_out(z, z->c, z->a);
+    z->port_out(z, get_bc(z), z->a);
     z->mem_ptr = get_bc(z) + 1;
     break; // out (c), a
 

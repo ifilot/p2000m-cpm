@@ -282,6 +282,12 @@ static void program_test(P2000Machine &m,const std::string &name) {
         type(m,"STAT\n");prompt(m);wait_text(m,"R/W, Space:");
         type(m,"STAT A:DSK:\n");prompt(m);wait_text(m,"8192: Kilobyte Drive  Capacity");
         type(m,"STAT A:HELLO.COM\n");prompt(m);wait_text(m,"Recs");wait_text(m,"HELLO.COM");
+    } else if(name=="BANKTEST") {
+        for(unsigned i=0x4000;i<0x8000;++i)m.pokeMemory(i,(i^(i>>8)^0xa7)&255);
+        type(m,"BANKTEST\n");prompt(m);wait_text(m,"BANKTEST PASS");
+        for(unsigned i=0x4000;i<0x8000;++i)
+            require(m.peekMemory(i)==((i^(i>>8)^0xa7)&255),"BANKTEST damaged normal window RAM");
+        type(m,"HELLO\n");prompt(m);wait_text(m,"Hello from an original Z80");
     } else if(name=="SYNC") {
         type(m,"SYNC\n");prompt(m);wait_text(m,"SYNC: SD cache flushed");
     } else if(name=="DIR") {

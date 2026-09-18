@@ -137,6 +137,13 @@ ram_format_byte:
     ld a,0xe5
     out (0x4d),a
     inc hl
+    ld a,l
+    or a
+    jr nz,ram_format_byte
+    ld a,h
+    and 3
+    jr nz,ram_format_byte
+    call ram_format_progress
     ld a,h
     or l
     jr nz,ram_format_byte
@@ -144,13 +151,34 @@ ram_format_byte:
     ld a,d
     cp 2
     jr z,ram_format_done
-    ld hl,boot_ram_second
-    call kernel_activity
     jr ram_format_bank
 ram_format_done:
     ld hl,boot_ram_ok
     call kernel_activity
     xor a
+    ret
+
+; Advance the on-screen decimal count after each completed 1024 bytes.
+; Only touch the three digits: no clearing/redrawing the activity line.
+; HL is the SRAM address and D is the bank; preserve both across the update.
+ram_format_progress:
+    push hl
+    ld hl,0xf5a1+boot_ram_count-boot_ram_first+2
+ram_format_digit:
+    ld a,(hl)
+    cp ' '
+    jr nz,ram_format_increment
+    ld a,'0'
+ram_format_increment:
+    inc a
+    ld (hl),a
+    cp ':'
+    jr nz,ram_format_progress_done
+    ld (hl),'0'
+    dec hl
+    jr ram_format_digit
+ram_format_progress_done:
+    pop hl
     ret
 
 kernel_activity:
@@ -162,8 +190,8 @@ kernel_activity:
     ret
 boot_partitions: db '  CHECKING SD LAYOUT  /  eleven 8 MiB volumes A-K',0
 boot_partition_ok: db '  SD LAYOUT VERIFIED  /  A-K ready',0
-boot_ram_first: db '  INITIALIZING L: SCRATCH (RAM)  /  0/128 KiB',0
-boot_ram_second: db '  INITIALIZING L: SCRATCH (RAM)  /  64/128 KiB',0
+boot_ram_first: db '  INITIALIZING L: SCRATCH (RAM)  /  '
+boot_ram_count: db '  0/128 KiB',0
 boot_ram_ok: db '  INITIALIZING L: SCRATCH (RAM)  /  128/128 KiB OK',0
 boot_vectors: db '  BOOT COMPLETE  /  CP/M entry points installed',0
 

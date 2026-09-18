@@ -36,8 +36,10 @@ struct Rig {
             }
             return 0xfc|(r.ready?0:2)|(r.idle?data:1-data);
         };
-        cpu.port_out=[](z80 *z,uint8_t port,uint8_t value) {
-            auto &r=*static_cast<Rig*>(z->userdata);r.output.push_back({z->cyc,port,value});
+        cpu.port_out=[](z80 *z,uint16_t port,uint8_t value) {
+            // The serial hardware decodes only the low eight address lines.
+            auto &r=*static_cast<Rig*>(z->userdata);
+            r.output.push_back({z->cyc,static_cast<uint8_t>(port),value});
         };
     }
     void call(unsigned address,bool interrupts=true,unsigned value=0) {

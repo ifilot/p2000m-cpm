@@ -42,18 +42,13 @@ public:
     const std::string &diskPath(int shugartDrive) const;
     int currentTrack(int shugartDrive) const;
 
-    // CP/M co-board: an add-on that replaces the motherboard's address
-    // decoder PROM with an EEPROM (U2) plus a local 16 KiB SRAM (U1). It is
-    // physically either present or absent, so it must be installed before an
-    // OUT to port 0x20 has any effect; installing it clears its own RAM, as
-    // powering up real SRAM leaves it in an indeterminate state.
+    // Modern-revised CP/M co-board (ATF1502AS + CY62128): fixed bank 0
+    // at A000-DFFF and optional banks 1-7 at 4000-7FFF. Installing clears
+    // SRAM deterministically; reset clears the control latches, not SRAM.
     void installCoBoard();
     void removeCoBoard();
     bool hasCoBoard() const { return m_coBoardInstalled; }
-    // True once the board is both installed and latched into CP/M mode by a
-    // write to the mirrored port range 0x20-0x2f with bit 7 set (U4, a
-    // 74LS74 clocked by U5's decode of that range). See
-    // p2000m-cpm-coboard/cupl/p2000m-cpm-coboard.pld for the hardware this reproduces.
+    // D7 of a write to any port 20h-2Fh selects the CP/M map.
     bool coBoardMapped() const { return m_coBoardInstalled && m_coBoardMapped; }
 
     P2000SdCartridge &sdCartridge() { return m_sd; }
@@ -80,7 +75,8 @@ public:
     unsigned programCounter() const;
 
     std::uint8_t readPort(std::uint8_t port);
-    void writePort(std::uint8_t port, std::uint8_t value);
+    // Full output bus address: bank bits come from A11-A13, not D3-D5.
+    void writePort(std::uint16_t port, std::uint8_t value);
 
     // Direct memory access for tests and tooling. These exercise exactly the
     // same address decode the CPU uses (including the co-board remap when
@@ -90,6 +86,7 @@ public:
     void pokeMemory(std::uint16_t address, std::uint8_t value) { writeMemory(address, value); }
 
 private:
+    friend struct P2000MachineTestAccess;
     bool loadImage(const std::string &path, std::uint8_t *destination,
                    std::size_t expectedSize, const char *description,
                    std::string *error);
@@ -102,7 +99,7 @@ private:
     static void cpuWrite(void *context, std::uint16_t address,
                          std::uint8_t value);
     static std::uint8_t cpuPortIn(z80 *cpu, std::uint8_t port);
-    static void cpuPortOut(z80 *cpu, std::uint8_t port, std::uint8_t value);
+    static void cpuPortOut(z80 *cpu, std::uint16_t port, std::uint8_t value);
     static std::string bundledPath(const char *fileName);
     static std::string bundledSoftwarePath(const char *relativePath);
     void writeCtc(int channel, std::uint8_t value);
@@ -113,10 +110,9 @@ private:
     std::array<std::uint8_t, 0x1000> m_video{};
     std::array<std::uint8_t, 0x8000> m_ram{};
     std::array<std::array<std::uint8_t, 0x2000>, 2> m_extensionRam{};
-    // CP/M co-board local RAM (U1, CY62256 wired as 16 KiB), mapped at CPU
-    // 0xa000-0xdfff while the board is installed and mapped. It is neither
-    // readable nor writable through the stock decode.
-    std::array<std::uint8_t, 0x4000> m_coBoardRam{};
+    // Bank 0 is always fixed at A000-DFFF; a nonzero selected bank can
+    // overlay expansion RAM at 4000-7FFF without changing its contents.
+    std::array<std::uint8_t, 0x20000> m_coBoardRam{};
     // The Nater CP/M firmware uses the MultiWare multifunction-card RAM disk
     // through an indirect 18-bit address: ports 95, 96 and 97 select a 64 KiB
     // bank, select a 256-byte page, and transfer auto-incrementing bytes.
@@ -139,6 +135,8 @@ private:
     std::uint8_t m_ramBank = 0;
     bool m_coBoardInstalled = false;
     bool m_coBoardMapped = false;
+    bool m_coBoardBankEnabled = false;
+    std::uint8_t m_coBoardBank = 0;
     std::uint8_t m_outputLatch = 0;
     std::uint8_t m_soundLatch = 0;
     std::uint8_t m_disasLatch = 0;

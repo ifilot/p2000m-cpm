@@ -94,6 +94,28 @@ int main(int argc, char **argv) {
         std::vector<unsigned char> kernel((std::istreambuf_iterator<char>(in)), {});
         for (std::size_t i = 0; i < kernel.size(); ++i)
             require(m.peekMemory(0xa000 + i) == kernel[i], "SD-loaded kernel differs from binary");
+        // Observe the real formatter's SRAM writes. At the start of every KiB,
+        // the display must count exactly the bytes already completed, including
+        // decimal carries and the 64 KiB bank boundary.
+        unsigned formattedBytes=0, formatSteps=0;
+        bool formatDone=false;
+        const std::string ramPrefix="  INITIALIZING L: SCRATCH (RAM)  /  ";
+        while (!formatDone && formatSteps++ < 10000000) {
+            const auto pc=m.programCounter();
+            if (m.peekMemory(pc)==0xd3 && m.peekMemory(pc+1)==0x4d) {
+                if (formattedBytes%1024==0) {
+                    const auto activity=screen(m).substr(18*80+1,79);
+                    require(activity.find(ramPrefix)==0,"Missing RAM format activity");
+                    require(std::stoul(activity.substr(ramPrefix.size(),3))==formattedBytes/1024,
+                            "RAM format progress does not match completed KiB");
+                }
+                ++formattedBytes;
+            }
+            m.stepInstruction();
+            if (formattedBytes==128*1024)
+                formatDone=screen(m).find("128/128 KiB OK")!=std::string::npos;
+        }
+        require(formatDone && formattedBytes==128*1024,"RAM format did not finish at 128 KiB");
         frames(m,300);
         require(screen(m).find("BOOT COMPLETE") != std::string::npos,
                 "Kernel did not boot: PC=" + std::to_string(m.programCounter()) + " " + screen(m));

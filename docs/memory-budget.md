@@ -14,7 +14,7 @@ to 7000–758B after the switch. E000 jumps to 7000; the loader validates and
 reads the SD kernel into A000–D7FF. It remains intact throughout SD retries.
 
 The SD kernel's cold initialization, SRAM formatting and dashboard strings
-occupy A000–A4FB. After cold boot, both temporary regions belong to applications.
+occupy A000–A4EC. After cold boot, both temporary regions belong to applications.
 Normal disk I/O, console input/output, warm boot and recovery never execute them.
 
 Permanent ROM now holds the SD protocol driver, BIOS disk operations, both
@@ -70,7 +70,10 @@ warm-boot recovery prompt with dirty data retained. WBOOT never reformats L:.
 | F000–FFFF | Video; not application RAM |
 
 Other workspace gaps remain reserved. The co-board exposes 56 KiB of linear
-RAM; the 128 KiB cartridge SRAM disk is accessed through I/O ports and cannot
+RAM. The modern-revised board additionally offers seven optional 16 KiB banks
+at 4000–7FFF; these are not yet used by this kernel. See the
+[bank-switching assessment](bank-switching.md) for the interface and proposed use.
+The 128 KiB cartridge SRAM disk is accessed through I/O ports and cannot
 extend the linear TPA. ROM has 99 spare bytes in two gaps. The interrupt-driven
 keyboard uses previously reserved workspace. Standalone serial diagnostics
 consume TPA only while running and do not change this resident budget.

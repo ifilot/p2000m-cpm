@@ -10,7 +10,8 @@ struct z80 {
   uint8_t (*read_byte)(void*, uint16_t);
   void (*write_byte)(void*, uint16_t, uint8_t);
   uint8_t (*port_in)(z80*, uint8_t);
-  void (*port_out)(z80*, uint8_t, uint8_t);
+  // Local extension: expose all 16 output address lines for banked hardware.
+  void (*port_out)(z80*, uint16_t, uint8_t);
   void* userdata;
 
   unsigned long cyc; // cycle count (t-states)
