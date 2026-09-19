@@ -3,7 +3,7 @@
   "artifacts": {
     "src/cartridge.asm": {
       "bytes": 9612,
-      "sha256": "1061f3c8356065857970db53683a19f0cc78633c00d440af7a2180017abed582"
+      "sha256": "506ade76b66aa750006d98c443eed7439024b9118d22b222d9b40b5c66258b93"
     },
     "src/kernel.asm": {
       "bytes": 14336,
