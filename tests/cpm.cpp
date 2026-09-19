@@ -102,6 +102,13 @@ static void keyboard_tests(P2000Machine &m) {
         key(4,0,-1,0); // Escape arms the control prefix.
         key(4,2,shift,1); // Escape+A is Ctrl-A in either case.
     }
+    // Shift + numeric-pad 0 is the P2000 DEFINE key, represented by '='.
+    key(5,5,-1,'0');
+    key(5,5,0,'=');
+    key(5,5,7,'=');
+    // These are application input codes, not terminal output controls.
+    key(0,0,-1,8);   // Cursor left / Backspace
+    key(2,7,-1,12);  // Cursor right / Form feed
     key(4,0,-1,0);
     key(4,0,-1,27);
     std::cout << "PASS: lowercase, both Shift keys, punctuation, controls and release" << std::endl;

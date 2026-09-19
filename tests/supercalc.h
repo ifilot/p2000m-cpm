@@ -41,6 +41,8 @@ static void supercalc_test(P2000Machine &m,bool reload=false) {
         require(screen(m).substr(80+22,9)=="       42","SuperCalc formula 6*7");
         sc_send(m,"=A1\n9\n");sc_active(m,"B1");
         require(screen(m).substr(80+22,9)=="       63","SuperCalc automatic recalculation");
+        sc_arrow(m,0,0);sc_active(m,"A1");
+        sc_arrow(m,2,7);sc_active(m,"B1");
         sc_arrow(m,2,7);sc_active(m,"C1");
         require(m.attributes()[80+22]==8 && m.attributes()[80+13]==0,"SuperCalc inverse selection");
         require(screen(m).substr(80+22,9)=="       63","Selection clipped cell value");

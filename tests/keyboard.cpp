@@ -65,6 +65,15 @@ int main(int argc,char **argv){
     }
     require(drain(m)=="AA","Shift was not captured with each event");
     busy();
+    tap(m,5,5);
+    for(unsigned shift:{0u,7u}) {
+        m.setKey(9,shift,true);tap(m,5,5);m.setKey(9,shift,false);frames(m,2);
+    }
+    // These control values are application input, including SuperCalc arrows.
+    tap(m,0,0);tap(m,2,7);
+    require(drain(m)==std::string("0==\x08\x0c",5),
+            "Numeric-pad DEFINE or cursor-key mapping failed");
+    busy();
     for(int i=0;i<3;++i){m.setKey(4,2,true);frames(m,1);m.setKey(4,2,false);frames(m,1);}
     require(queued(m)==0,"Bouncing press generated input");
     m.setKey(4,2,true);frames(m,2);

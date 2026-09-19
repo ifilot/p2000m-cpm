@@ -84,6 +84,10 @@ It does not require ANSI/VT100, bank switching or any new BDOS function.
 | Keyboard prefix | None |
 | Up / down / left / right | 0Bh / 0Ah / 08h / 0Ch |
 
+SuperCalc receives these through CP/M BIOS CONIN, directly from the keyboard
+FIFO. The VT52 profile governs SuperCalc's display output only; it is not an
+input driver. Shift + numeric-pad `0` produces `=`.
+
 The original installer and seven sample worksheets are also bundled. See
 [provenance and reproducible installation](../assets/supercalc/README.md),
 [usage](user-guide.md#supercalc2), and the

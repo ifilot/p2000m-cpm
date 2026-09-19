@@ -117,3 +117,9 @@ repeat timing, queue ordering/overflow/wrap, NUL/control characters, DI/EI
 callers, all main/alternate register preservation, and type-ahead during real
 SD reads and writes. The existing suites also guard the interrupt stack while
 running utilities, full-TPA applications, recovery and warm/cold restart.
+
+The numeric-pad `0` matrix position is `0` unshifted and `=` with either Shift
+key (the P2000 `DEFINE` key). The cursor-left and cursor-right keys enqueue 08h and 0Ch respectively.
+Those control bytes are delivered unchanged through BIOS CONIN; full-screen
+programs such as SuperCalc2 interpret them as input, independently of the
+VT52-style sequences used for screen output.
