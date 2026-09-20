@@ -1,4 +1,4 @@
-# Version 0.4.1 memory budget
+# Version 0.5.0 memory budget
 
 The TPA is **0100–C8FF: 51,200 bytes (50 KiB)**. The VT52-style terminal
 parser reserves another **512 bytes** relative to the preceding 50.5 KiB

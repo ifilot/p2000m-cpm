@@ -1,13 +1,13 @@
 {
-  "description": "Version 0.4.1 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16, shared release/link identity, hardened BDOS and filesystem, physical SD/SRAM activity LEDs and KiB format progress. VT52-style console parser in resident RAM; 51200-byte TPA (512 bytes reserved for terminal support). Disk geometry unchanged. D: dashboard label changed to CALC for bundled SuperCalc2; J: changed from EXTRA 1 to GAMES for bundled Othello. OPEN treats an uninitialized out-of-range S2 field as extent zero for MS COBOL-80 LINK-80 compatibility. Reviewed NL/UK physical keyboard corrections and ASCII-to-native underscore/bracket/grave rendering.",
+  "description": "Version 0.5.0 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16, shared release/link identity, hardened BDOS and filesystem, physical SD/SRAM activity LEDs and KiB format progress. VT52-style console parser in resident RAM; 51200-byte TPA (512 bytes reserved for terminal support). Disk geometry unchanged. D: dashboard label changed to CALC for bundled SuperCalc2; J: changed from EXTRA 1 to GAMES for bundled Othello. OPEN treats an uninitialized out-of-range S2 field as extent zero for MS COBOL-80 LINK-80 compatibility. Reviewed NL/UK physical keyboard corrections and ASCII-to-native underscore/bracket/grave rendering.",
   "artifacts": {
     "src/cartridge.asm": {
       "bytes": 9612,
-      "sha256": "6548c06fba06a893131deb673e5a27b641c97ea5949cae455200894d446b663e"
+      "sha256": "7bd3f31706f4e42ae0a49d910fd378b2ac30f0772794e16ed206497c75c37895"
     },
     "src/kernel.asm": {
       "bytes": 14336,
-      "sha256": "eb334652ba4654fa57b615f1c62e6cabbe7adc9b1f8461dc64cc2f712b96ec08"
+      "sha256": "36e5a136c329b57c77574028c996aef617474fb4db0c680a1c43b6513561dc26"
     },
     "programs/copy/copy.asm": {
       "bytes": 510,

@@ -35,7 +35,7 @@ int main(int argc, char **argv)
         type(machine, "h");
         frames(machine, 20);
         wait_text(machine, "P2000M OTHELLO - HELP");
-        wait_text(machine, "VERSION 0.2.0");
+        wait_text(machine, "VERSION v1.0.0");
         wait_text(machine, "COMPILED ");
         wait_text(machine, "AUTHOR IVO FILOT");
         wait_text(machine, "The game ends when neither player can move.");

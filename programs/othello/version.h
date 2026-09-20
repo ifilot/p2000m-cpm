@@ -6,7 +6,7 @@
  * development binaries can be identified without changing this semantic
  * version for every build.
  */
-#define OTHELLO_VERSION "0.2.0"
+#define OTHELLO_VERSION "v1.0.0"
 #define OTHELLO_BUILD_DATE __DATE__
 
 #endif
