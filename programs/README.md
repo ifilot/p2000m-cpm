@@ -9,6 +9,8 @@ Each program has its own source folder and a short usage guide:
 - [KEYTEST](keytest/) — raw keyboard matrix and inverse-video key test
 - [BANKTEST](banktest/) — revised co-board bank-switching hardware diagnostic
 - [SYNC](sync/) — explicit SD write flush
+- [HELP](help/) — compact offline system reference
+- [MORE](more/) — paged CP/M text-file viewer
 - [SERPINS](serpins/) — serial input and handshake inspection
 - [SERTX](sertx/) — serial transmit test
 - [SERRX](serrx/) — serial receive test

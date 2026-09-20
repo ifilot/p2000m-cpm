@@ -50,8 +50,8 @@ class BundledPrograms(unittest.TestCase):
             expected = (BUILD / 'BANKTEST.COM').read_bytes()
             self.assertEqual(read_cpm_file(BUILD / 'p2000m-sd-template.img', 0, b'BANKTESTCOM'),
                              expected + b'\x1a' * (-len(expected) % 128))
-        if name in ('MBASIC', 'BDSC'):
-            drive = 4 if name == 'MBASIC' else 1
+        if name in ('MBASIC', 'BDSC', 'MSCOBOL'):
+            drive = {'MBASIC': 4, 'BDSC': 1, 'MSCOBOL': 5}[name]
             for source in LANGUAGE_FILES[drive]:
                 disk_name = (source.stem.upper().ljust(8) + source.suffix[1:].upper().ljust(3)).encode('ascii')
                 data = source.read_bytes()
@@ -59,11 +59,12 @@ class BundledPrograms(unittest.TestCase):
                                  data + b'\x1a' * (-len(data) % 128), source.name)
         with tempfile.TemporaryDirectory(prefix='p2000m-program-') as tmp:
             tmp = Path(tmp)
-            files = [*CORE_FILES, *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'BANKTEST', 'SYNC'))]
+            files = [*CORE_FILES, ROOT / 'assets/mscobol/RUNCOB.COM', *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'BANKTEST', 'SYNC', 'HELP', 'MORE'))]
             # More than one 32 KiB directory extent; binary data includes Ctrl-Z.
             payload = bytes(range(256)) * 145
             fixtures = {'PAYLOAD.BIN': payload, 'HEXTEST.BIN': bytes(range(128)),
-                        'TEST.ASM': SOURCE}
+                        'TEST.ASM': SOURCE,
+                        'MORETEST.TXT': b''.join(f'line {i:02d}\r\n'.encode() for i in range(1, 23))}
             if name == 'LOAD':
                 fixtures['TEST.HEX'] = intel_hex(CODE)
             for filename, data in fixtures.items():
@@ -75,10 +76,10 @@ class BundledPrograms(unittest.TestCase):
             existing.write_bytes(b"PRESERVE ME" + bytes(117))
             language_files = {drive: list(paths) for drive, paths in LANGUAGE_FILES.items()}
             if name in ('MBASIC', 'BDSC'):
-                filename = 'BASCHK.BAS' if name == 'MBASIC' else 'CCHK.C'
+                filename = {'MBASIC': 'BASCHK.BAS', 'BDSC': 'CCHK.C'}[name]
                 fixture = tmp / filename
                 fixture.write_bytes((ROOT / 'tests/fixtures' / filename).read_text().replace('\n', '\r\n').encode('ascii'))
-                language_files[4 if name == 'MBASIC' else 1].append(fixture)
+                language_files[{'MBASIC': 4, 'BDSC': 1}[name]].append(fixture)
             if name == 'COPYEXISTS':
                 language_files[1].append(existing)
             create_image(card, files, files_by_drive=language_files)
@@ -118,9 +119,12 @@ class BundledPrograms(unittest.TestCase):
                 self.assertEqual(read_cpm_file(card, 1, b'COUT    TXT').split(b'\x1a')[0], b'BDS C DISK OK\r\n')
                 self.assertGreater(len(read_cpm_file(card, 1, b'CCHK    CRL')), 128)
                 self.assertGreater(len(read_cpm_file(card, 1, b'CCHK    COM')), 128)
+            elif name == 'MSCOBOL':
+                self.assertGreater(len(read_cpm_file(card, 5, b'SQUARO  REL')), 128)
+                self.assertGreater(len(read_cpm_file(card, 5, b'SQUARO  COM')), 128)
 
 
-for program in ('ABI', 'HELLO', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'BANKTEST', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3', 'MBASIC', 'BDSC', 'SUPERCALC'):
+for program in ('ABI', 'HELLO', 'HELP', 'MORE', 'COPY', 'COPYEXISTS', 'CPMTEST', 'CPMABORT', 'RAMTEST', 'RAMEXISTS', 'BANKTEST', 'SYNC', 'DIR', 'PIP', 'ASM', 'LOAD', 'DDT', 'DUMP', 'ED', 'STAT', 'ZORK1', 'ZORK2', 'ZORK3', 'MBASIC', 'BDSC', 'MSCOBOL', 'SUPERCALC'):
     setattr(BundledPrograms, 'test_' + program.lower(), lambda self, name=program: self.run_program(name))
 
 if __name__ == '__main__':

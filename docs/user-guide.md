@@ -16,7 +16,7 @@ eleven 8 MiB CP/M volumes. CP/M cannot access files in the FAT32 partition.
 | C: | ZORK | Zork I, II, and III |
 | D: | CALC | SuperCalc2, installer, help and sample worksheets |
 | E: | BASIC | Microsoft BASIC-80 and an example |
-| F: | ASM | Empty |
+| F: | COBOL | Microsoft COBOL-80 and an example |
 | G: | SOURCE | Empty |
 | H: | DOCS | Empty |
 | I: | DATA | Empty |
@@ -122,6 +122,11 @@ The standard PIP, ASM, LOAD, DDT, DUMP, ED, and STAT binaries are installed on
 A:. Their provenance and checksums are documented in the
 [utility notes](../assets/cpm_core/README.md).
 
+`HELP` is the compact offline reference on A:. `MORE file.ext` reads a text
+file in 20-line pages; press any key to continue or Ctrl-C to stop. `RUNCOB`
+is the Microsoft COBOL runtime executor and is kept on A: for its historical
+launcher.
+
 Start a Zork game from C: so it can find its data files:
 
 ```text
@@ -140,6 +145,11 @@ E>MBASIC BASDEMO
 
 Run `MBASIC` without a filename for interactive BASIC. `SYSTEM` returns to
 CP/M. See the [MBASIC provenance notes](../assets/mbasic/README.md).
+
+Microsoft COBOL-80 lives on F: with its overlays, linker, runtime libraries,
+and the bundled `SQUARO.COB` sample. Compile it from F: with `COBOL =SQUARO`,
+then link with `L80 SQUARO/N,SQUARO/E`. The linked program returns to A: and
+must be launched there as `F:SQUARO`, so it can open `A:RUNCOB.COM`.
 
 Compile and run the supplied BDS C example from drive B:
 

@@ -19,3 +19,6 @@ class Languages(unittest.TestCase):
 
     def test_bdsc(self):
         self.run_program('BDSC')
+
+    def test_mscobol(self):
+        self.run_program('MSCOBOL')

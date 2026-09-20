@@ -273,6 +273,16 @@ static void program_test(P2000Machine &m,const std::string &name) {
     } else if(name=="HELLO") {
         type(m,"HELLO\n");prompt(m);
         wait_text(m,"Hello from an original Z80");
+    } else if(name=="HELP") {
+        type(m,"HELP\n");prompt(m);
+        wait_text(m,"P2000M SD CP/M help");
+        wait_text(m,"Run A:SYNC before reset or power-off");
+    } else if(name=="MORE") {
+        type(m,"MORE MORETEST.TXT\n");
+        wait_text(m,"line 20");
+        wait_text(m,"-- More -- press any key");
+        type(m," \n");prompt(m);
+        wait_text(m,"line 22");
     } else if(name=="PIP") {
         type(m,"PIP B:RESULT.BIN=A:PAYLOAD.BIN\n");prompt(m);
     } else if(name=="COPY") {
@@ -385,6 +395,16 @@ static void program_test(P2000Machine &m,const std::string &name) {
         type(m,"CLINK CCHK\n");prompt(m,'B');
         type(m,"CCHK\n");prompt(m,'B');
         wait_text(m,"BDS C EXECUTION PASS 385");
+    } else if(name=="MSCOBOL") {
+        type(m,"F:\n");prompt(m,'F');
+        type(m,"COBOL =SQUARO\n");prompt(m);
+        wait_text(m,"No Errors or Warnings");
+        type(m,"F:\n");prompt(m,'F');
+        type(m,"L80 SQUARO/N,SQUARO/E\n");prompt(m);
+        type(m,"F:SQUARO\n");wait_text(m,"KEY IN \"A\"");
+        type(m,"4\n");
+        wait_text(m,"SQUARE ROOT OF");
+        type(m,std::string(1,27)+"C");prompt(m);
     } else if(name=="ZORK1" || name=="ZORK2" || name=="ZORK3") {
         type(m,"C:\n");frames(m,50);
         type(m,name+"\n");

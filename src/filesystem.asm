@@ -513,6 +513,18 @@ fs_result_index:
 fs_open:
     call fs_setup
     jp nz,return_ff
+    ; Some period programs (notably LINK-80's MS COBOL launcher) initialize
+    ; only the drive/name/type portion of an FCB.  CP/M OPEN starts at extent
+    ; zero in that case; do not reject garbage S2 beyond this volume's range.
+    ld a,(ix+14)
+    and 63
+    cp 16
+    jr c,fs_open_extent_valid
+    xor a
+    ld (ix+12),a
+    ld (ix+13),a
+    ld (ix+14),a
+fs_open_extent_valid:
     ld a,(ix+32)
     push af
     ld (ix+32),0           ; CR is not part of OPEN's extent selection

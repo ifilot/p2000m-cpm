@@ -17,9 +17,11 @@ CARTRIDGE_SIZE = 16 * 1024
 CORE_NAMES = ('ASM', 'DDT', 'DUMP', 'ED', 'LOAD', 'PIP', 'STAT')
 CORE_FILES = [ROOT / 'assets/cpm_core' / (name + '.COM') for name in CORE_NAMES]
 BASIC_FILES = [ROOT / 'assets/mbasic/MBASIC.COM', ROOT / 'programs/basdemo/BASDEMO.BAS']
+COBOL_FILES = sorted(p for p in (ROOT / 'assets/mscobol').iterdir()
+                     if p.name != 'README.md')
 BDS_FILES = sorted(p for p in (ROOT / 'assets/bdsc').iterdir() if p.suffix.upper() in
                    ('.COM', '.CRL', '.CCC', '.H', '.LBR', '.DOC')) + [ROOT / 'programs/cdemo/CDEMO.C']
-LANGUAGE_FILES = {1: BDS_FILES, 4: BASIC_FILES}
+LANGUAGE_FILES = {1: BDS_FILES, 4: BASIC_FILES, 5: COBOL_FILES}
 SUPERCALC_FILES = sorted(p for p in (ROOT / 'assets/supercalc').iterdir()
                          if p.suffix.upper() in ('.COM', '.OVL', '.HLP', '.DAT', '.CAL'))
 SERIAL_NAMES = ('SERPINS', 'SERTX', 'SERRX')
@@ -52,13 +54,13 @@ def main():
     kernel = (BUILD / 'kernel.bin').read_bytes()
     if len(kernel) != LAYOUT['kernel_bytes']:
         raise ValueError('Kernel length differs from memory.inc')
-    for program in ('hello', 'cpmtest', 'copy', 'ramtest', 'banktest', 'sync', 'keytest', *(name.lower() for name in SERIAL_NAMES)):
+    for program in ('hello', 'cpmtest', 'copy', 'ramtest', 'banktest', 'sync', 'keytest', 'help', 'more', *(name.lower() for name in SERIAL_NAMES)):
         subprocess.run(['z80asm', '-I', str(ROOT / 'programs/common'), '-I', str(ROOT / 'programs' / program), '-o', str(BUILD / (program.upper() + '.COM')),
                         str(ROOT / 'programs' / program / (program + '.asm'))], check=True)
     # Rebuildable output only; don't overwrite the user's persistent SD image.
     image = BUILD / 'p2000m-sd-template.img'
     image.unlink(missing_ok=True)
-    create_image(image, [BUILD / "HELLO.COM", BUILD / "CPMTEST.COM", BUILD / "COPY.COM", BUILD / "RAMTEST.COM", BUILD / "BANKTEST.COM", BUILD / "SYNC.COM", BUILD / "KEYTEST.COM"] + CORE_FILES,
+    create_image(image, [BUILD / "HELLO.COM", BUILD / "CPMTEST.COM", BUILD / "COPY.COM", BUILD / "RAMTEST.COM", BUILD / "BANKTEST.COM", BUILD / "SYNC.COM", BUILD / "KEYTEST.COM", BUILD / "HELP.COM", BUILD / "MORE.COM", ROOT / 'assets/mscobol/RUNCOB.COM'] + CORE_FILES,
                  files_by_drive={2: zork, 3: SUPERCALC_FILES, **LANGUAGE_FILES,
                                  1: BDS_FILES + [BUILD / (name + '.COM') for name in SERIAL_NAMES]})
     install_kernel(image, kernel)
@@ -75,7 +77,7 @@ def main():
         for drive, files in LANGUAGE_FILES.items()}
     (BUILD / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')
     outputs = ['cartridge.bin', 'kernel.bin', 'p2000m-sd-template.img', 'p2000m-sd-template.img.gz', 'build-info.json',
-               'HELLO.COM', 'COPY.COM', 'CPMTEST.COM', 'RAMTEST.COM', 'BANKTEST.COM', 'SYNC.COM', 'KEYTEST.COM',
+               'HELLO.COM', 'COPY.COM', 'CPMTEST.COM', 'RAMTEST.COM', 'BANKTEST.COM', 'SYNC.COM', 'KEYTEST.COM', 'HELP.COM', 'MORE.COM',
                *(name + '.COM' for name in SERIAL_NAMES)]
     checksums = []
     for name in outputs:
