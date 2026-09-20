@@ -108,6 +108,14 @@ co-board. It overwrites those banks, saves/restores the ordinary RAM window,
 and leaves L: untouched. See the [hardware diagnostic guide](../programs/banktest/README.md)
 for output, requirements and limits.
 
+`KEYTEST` on A: displays the raw keyboard matrix and inverts each held key,
+including both Shift keys and Shift Lock. The row hex values help identify
+wiring errors. Exit with both Shift keys + Escape, then release them. See the
+[keyboard diagnostic guide](../programs/keytest/README.md) for the display,
+manual references and tests. For the corrected main-row `0/=` and `-/_`
+mapping, install the new **port-1 cartridge ROM and matching SD kernel** as
+well as KEYTEST; copying the COM alone cannot update the keyboard driver.
+
 ## Included software
 
 The standard PIP, ASM, LOAD, DDT, DUMP, ED, and STAT binaries are installed on

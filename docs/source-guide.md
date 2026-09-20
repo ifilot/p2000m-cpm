@@ -130,6 +130,11 @@ SOURCE_DATE_EPOCH=0 fixes metadata during the assembly regression.
 The two-pass link checks all ROM/RAM cross-references and rejects region overflow.
 It checks the ROM, full kernel, original programs and TPA
 boundary fixture, including their addresses, padding and fall-through layout.
+The physical-keyboard correction adds 19 ROM bytes for ASCII glyph translation;
+its deterministic ROM/kernel baseline was reviewed against the original build.
+Image sizes and the TPA remain unchanged; kernel byte changes are the paired
+link identity and relocated ROM references. Physical-key tests cover the changed
+input values, and terminal/SuperCalc tests cover their rendering.
 Do not automatically regenerate it on failure: a legitimate instruction
 change requires explicit review of the new baseline and behavioral tests.
 
@@ -140,6 +145,12 @@ and the TPA boundary. It also exercises the applications together.
 `test_sd_crc.py` and `sd_crc.cpp` exercise the actual Z80 CRC routines and
 corrupt SPI traffic through the emulator's public bridge ports. They check
 CRC vectors, mandatory CMD59, CID/sector rejection, recovery and cache retention.
+
+`test_keytest.py` boots the built SD template and runs `KEYTEST.COM` through
+CCP. It exercises all 80 raw matrix contacts, entire-screen character/attribute
+integrity, release/overlap/hold behavior, both Shift keys, Shift Lock, queued NUL
+on exit, and return to normal CP/M input. The whole SD image is checked for
+unintended writes. See the [KEYTEST guide](../programs/keytest/README.md).
 
 The separate program suite boots a fresh machine/card for each utility:
 

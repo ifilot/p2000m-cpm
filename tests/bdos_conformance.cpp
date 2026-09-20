@@ -179,6 +179,10 @@ static void terminal(Harness &h) {
     auto pos=[&](unsigned y,unsigned x) {out(std::string("\x1bY")+char(32+y)+char(32+x));};
     auto cell=[&](unsigned y,unsigned x) {return h.m.characters()[y*80+x];};
     out("\f");
+    out("0=-_#[]`");
+    require(screen(h.m).substr(0,8)==std::string("0=-")+char(0x60)+char(0x5f)+char(0x0f)+char(0x10)+char(0x0a),
+            "ASCII underscore/hash/brackets/grave must use native P2000 glyphs");
+    out("\f");
     // Stream one command across all three BDOS entry points and BIOS CONOUT.
     h.bdos(2,27);h.bdos(6,'Y');h.bios(4,32+4);
     h.m.pokeMemory(0x8700,32+9);h.m.pokeMemory(0x8701,'X');h.m.pokeMemory(0x8702,'$');

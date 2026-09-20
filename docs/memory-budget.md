@@ -63,8 +63,8 @@ warm-boot recovery prompt with dirty data retained. WBOOT never reformats L:.
 | DDC4–DDE0 | Keyboard matrix history, queue/repeat/control state and saved IRQ SP |
 | DE00–DFFF | 512-byte directory-sector cache |
 | E000–E271 | ROM SD/restart core |
-| E272–E7E1 | ROM keyboard/console, cache, disk operations and read-only tables |
-| E7E2–E7FD | 28 spare ROM bytes |
+| E272–E7F4 | ROM keyboard/console, cache, disk operations and read-only tables |
+| E7F5–E7FD | 9 spare ROM bytes |
 | E7FE–E7FF | IM2 keyboard vector |
 | E800–EF6A | 1,899-byte ROM filesystem engine |
 | EF6B–EF82 | ROM keyboard-repeat routine |

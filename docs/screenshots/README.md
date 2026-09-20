@@ -1,7 +1,8 @@
 # README screenshots
 
 `boot.png` shows the boot dashboard; `session.png` shows DIR, HELLO, and STAT.
-Both render actual character/attribute RAM from the bundled emulator running
+`keytest.png` shows A, main-row zero/minus and left Shift held in the raw matrix
+diagnostic. The captures render actual character/attribute RAM from the bundled emulator running
 the built cartridge and SD image. These are emulator captures, not mockups or
 photographs of physical hardware. The original character ROM is rendered at
 2× integer scale with green text and the visible blink phase.

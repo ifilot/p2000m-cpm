@@ -22,28 +22,33 @@ include 'keyboard.asm'
 ; Zero entries are ignored keys, not NUL input. Shift selects a parallel
 ; table: letters are lowercase normally and uppercase with either Shift key.
 ; The Escape prefix can generate NUL independently of the table.
+; NL/UK physical layout audited against Maintenance 2 (REL 2.2) and the
+; photographed keyboard; see docs/keyboard-reference.md. Main-row 0 is X5/Y5,
+; minus is X5/Y7; keypad DEFINE/0 is X2/Y3 (not X5/Y5).
+; CP/M ASCII approximations: sterling -> #, degree -> #, acute -> apostrophe.
+; Keypad STOP retains its printable dot; CLEAR/00/LOCK are untranslated.
 ; ============================================================================
 
 keys_normal:
     db 8,'6',11,'q','3','5','7','4'
     db 9,'h','z','s','d','g','j','f'
-    db 13,' ',0,'0','#',10,',',12
+    db '.', ' ',0,'0','#',10,',',12
     db 0,'n','<','x','c','b','m','v'
     db 27,'y','a','w','e','t','u','r'
-    db 0,'9','*','/',8,'0','1','-'
+    db 0,'9','+','-',8,'0','1','-'
     db '9','o','8','7',13,'p','8','@'
     db '3','.','2','1',']','/','k','2'
-    db '6','l','5','4','=',';','i',':'
+    db '6','l','5','4',39,';','i',':'
 keys_shift:
     db 8,'&',11,'Q','#','%',39,'$'
     db 9,'H','Z','S','D','G','J','F'
-    db 13,' ',0,'0','#',10,'<',12
+    db '.', ' ',0,'=','#',10,',',12
     db 0,'N','>','X','C','B','M','V'
     db 27,'Y','A','W','E','T','U','R'
-    db 0,')','*','/',8,'=','!','='
-    db '9','O','8','7',13,'P','(','`'
-    db '3','>','2','1','[','?','K',34
-    db '6','L','5','4','+','+','I','*'
+    db 0,')','*','/',8,'=','!','_'
+    db '9','O','8','7',13,'P','(',39
+    db '3','.','2','1','[','?','K',34
+    db '6','L','5','4',96,'+','I','*'
 
 ; ============================================================================
 ; PUBLIC CONSOLE OUTPUT: 80-column text terminal
@@ -143,10 +148,18 @@ terminal_done:
 ; Falls into terminal_scroll with HL pointing to the proposed next cursor.
 ; ----------------------------------------------------------------------------
 terminal_char:
-    ; ASCII '#' is sterling in the P2000 character ROM; native hash is 5Fh.
-    cp '#'
-    jr nz,terminal_native
-    ld a,0x5f
+    ; CP/M ASCII punctuation differs from the native P2000 character ROM.
+    ld hl,terminal_glyphs
+    ld b,5
+terminal_glyph_loop:
+    cp (hl)
+    inc hl
+    jr z,terminal_glyph_found
+    inc hl
+    djnz terminal_glyph_loop
+    jr terminal_native
+terminal_glyph_found:
+    ld a,(hl)
 terminal_native:
     ld hl,(cursor)
     ld (hl),a
@@ -251,3 +264,7 @@ null_input:
 list_status:
     ld a,0xff
     ret
+
+; ASCII -> native glyph. Translate only at rendering, never in CONIN.
+terminal_glyphs:
+    db '#',0x5f,'_',0x60,'[',0x0f,']',0x10,96,0x0a

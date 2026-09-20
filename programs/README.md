@@ -6,6 +6,7 @@ Each program has its own source folder and a short usage guide:
 - [COPY](copy/) — file copying without overwriting
 - [CPMTEST](cpmtest/) — SD filesystem regression test
 - [RAMTEST](ramtest/) — SRAM filesystem regression test
+- [KEYTEST](keytest/) — raw keyboard matrix and inverse-video key test
 - [BANKTEST](banktest/) — revised co-board bank-switching hardware diagnostic
 - [SYNC](sync/) — explicit SD write flush
 - [SERPINS](serpins/) — serial input and handshake inspection

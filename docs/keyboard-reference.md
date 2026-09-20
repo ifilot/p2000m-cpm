@@ -118,8 +118,84 @@ callers, all main/alternate register preservation, and type-ahead during real
 SD reads and writes. The existing suites also guard the interrupt stack while
 running utilities, full-TPA applications, recovery and warm/cold restart.
 
-The numeric-pad `0` matrix position is `0` unshifted and `=` with either Shift
-key (the P2000 `DEFINE` key). The cursor-left and cursor-right keys enqueue 08h and 0Ch respectively.
+Main-row `0` (X5/Y5) and numeric-pad DEFINE/`0` (X2/Y3) both give `=`
+with either Shift key. The adjacent main-row minus (X5/Y7) gives `-` / `_`. The cursor-left and cursor-right keys enqueue 08h and 0Ch respectively.
 Those control bytes are delivered unchanged through BIOS CONIN; full-screen
 programs such as SuperCalc2 interpret them as input, independently of the
 VT52-style sequences used for screen output.
+
+## Interactive wiring diagnostic
+
+[`KEYTEST.COM`](../programs/keytest/) displays all ten raw matrix rows and
+inverts each held key tile, including Shift/Lock and unmapped positions. It
+uses the Field Support Manual's port interface and inverse-video test approach;
+see its guide for the precise manual references, controls and test coverage.
+
+## Physical NL/UK map audit (2026-09-20)
+
+The earlier audit mislabeled **X5/Y5 as numeric-pad zero** and used the
+existing driver table as the KEYTEST legend source. That was not an independent
+verification. X5/Y5 is the main-row zero; numeric-pad DEFINE/0 is X2/Y3.
+The pre-correction source already contained `=` at shifted X5/Y5, but lacked
+it at shifted X2/Y3. It also incorrectly used `=` for shifted X5/Y7.
+
+The user's keyboard photograph identifies `0 / =`, adjacent `- / _`, the
+acute/grave key, `@ / apostrophe`, `] / [`, unshifted comma/period, and the
+keypad minus/divide, plus/multiply, CLEAR, 00 and STOP/dot keys. KEYTEST now
+shows those physical keycaps, including sterling and degree in native video.
+
+Independent wiring evidence comes from Philips **Maintenance 2**, whose banner
+reports **P2000-M & T MAINTENANCE PROGRAM REL 2.2**:
+
+- [Original binary](https://github.com/p2000t/software/blob/main/cartridges/Maintenance%202.bin),
+  downloaded 2026-09-20; 16,384 bytes; SHA-256
+  `6057b7b1e5ea556062466c50c2c636f338cc5177f624efe4cca8d3faa49fe672`.
+- File offset **0986h**: 74 little-endian screen addresses used by its keyboard
+  test. Routine **2802h** indexes this table by key number; scanner **27C9h**
+  forms row × 8 + bit. The two final entries are the Shift keys.
+- The national selection table at file **0A1Ah** has 17-byte records. Selecting
+  **5, NL OR UK**, picks the normal keyboard table at file **0E15h** and the
+  shifted table 72 bytes later at **0E5Dh**. Routine **3CD7h** reads these tables.
+- Booted the unmodified cartridge in the bundled emulator, selected **5** and
+  then **3 (KEYBOARD)**, and checked its displayed layout. The keyboard-test
+  screen places X5/Y5 at row 7/column 22 and X5/Y7 at row 7/column 24, immediately
+  after the main-row 9. Numeric-pad zero is at row 15/column 33.
+  Screen coordinates here are zero-based in the maintenance program's display.
+
+| Physical key | Port / bit | CP/M normal | CP/M shifted |
+| --- | --- | --- | --- |
+| Main-row 0 | 05h / 5 | `0` | `=` |
+| Main-row minus | 05h / 7 | `-` | `_` |
+| Keypad DEFINE / 0 | 02h / 3 | `0` | `=` |
+| Keypad plus / multiply | 05h / 2 | `+` | `*` |
+| Keypad minus / divide | 05h / 3 | `-` | `/` |
+| Keypad STOP / dot | 02h / 0 | `.` | `.` |
+| Main comma | 02h / 6 | `,` | `,` |
+| Main period | 07h / 1 | `.` | `.` |
+| Main semicolon / plus | 08h / 5 | `;` | `+` |
+| Right / left bracket | 07h / 4 | `]` | `[` |
+| At / apostrophe | 06h / 7 | `@` | apostrophe |
+| Acute / grave | 08h / 4 | apostrophe | grave |
+
+This remains a CP/M ASCII mapping. Acute uses the ASCII apostrophe;
+sterling and degree retain the existing `#` fallback. Historical dead-accent,
+STOP, CLEAR, double-zero and Shift Lock functions are not emulated; STOP's
+key emits its ordinary dot, while CLEAR/00/LOCK remain untranslated. KEYTEST
+shows their contacts and physical legends independently of these conventions.
+
+**Input bytes and screen codes must be kept separate.** CP/M underscore is
+ASCII 5Fh, but native video 5Fh draws hash. CONOUT now renders underscore with
+native 60h; hash remains native 5Fh. Square brackets use native 0Fh/10h and
+ASCII grave uses native 0Ah. Key input and saved files retain ASCII bytes.
+The maintenance shifted-minus entry is 60h, consistent with its native
+underscore; copying 60h directly into a CP/M input table would emit grave.
+
+The IRQ and DI input tests check these physical positions under both Shift
+keys. SuperCalc's `SCKEYS` scenario explicitly presses X5/Y5, X5/Y7 and X2/Y3;
+it checks GoTo, a negative number, a displayed filename underscore, and cursor
+left/right. It does not select arbitrary keys by their expected output.
+
+**Installation:** these routines live in the port-1 **cartridge ROM**. Install
+the rebuilt `cartridge.bin` and its matching SD kernel, plus the new KEYTEST.COM.
+Copying KEYTEST or updating only the SD kernel cannot replace the keyboard
+translation tables. The changed link identity rejects a mismatched ROM/kernel.

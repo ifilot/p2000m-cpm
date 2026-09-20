@@ -16,13 +16,19 @@ static void stack_guards(P2000Machine &m,bool initialize) {
 }
 static void type(P2000Machine &m,const std::string &s) {
     const std::string matrix =
-        " 6 Q3574" " HZSDGJF" "   0# , " " N<XCBMV" " YAWETUR" " 9*/ 01-" "9O87 P8@" "3.21]/K2" "6L54=;I:";
+        " 6 Q3574" " HZSDGJF" "   0# , " " N<XCBMV" " YAWETUR" " 9+- 01-" "9O87 P8@" "3.21]/K2" "6L54 ;I:";
     for(char c:s) {
         bool shifted=c>='A' && c<='Z';
         if(c=='"') shifted=true;
         if(c>='a' && c<='z') c-=32;
         unsigned pos=0;
         if(c=='"') pos=7*8+7;
+        else if(c=='0') pos=5*8+5;
+        else if(c=='=') {pos=5*8+5;shifted=true;}
+        else if(c=='-') pos=5*8+7;
+        else if(c=='_') {pos=5*8+7;shifted=true;}
+        else if(c=='+') {pos=8*8+5;shifted=true;}
+        else if(c=='*') {pos=8*8+7;shifted=true;}
         else if(c=='\n') pos=6*8+4;
         else if(c==' ') pos=2*8+1;
         else if(c==27) pos=4*8;
@@ -94,18 +100,22 @@ static void keyboard_tests(P2000Machine &m) {
     }
     for(int shift : {-1,0,7}) {
         key(0,1,shift,shift<0?'6':'&');
-        key(2,6,shift,shift<0?',':'<');
+        key(2,6,shift,',');
         key(7,5,shift,shift<0?'/':'?');
         key(2,1,shift,' ');
-        key(2,0,shift,13);
+        key(2,0,shift,'.');
         key(0,0,shift,8);
         key(4,0,-1,0); // Escape arms the control prefix.
         key(4,2,shift,1); // Escape+A is Ctrl-A in either case.
     }
-    // Shift + numeric-pad 0 is the P2000 DEFINE key, represented by '='.
+    // Main-row Shift+0 and keypad Shift+DEFINE/0 both produce '='.
     key(5,5,-1,'0');
     key(5,5,0,'=');
     key(5,5,7,'=');
+    for(int shift : {-1,0,7}) {
+        key(2,3,shift,shift<0?'0':'=');
+        key(5,7,shift,shift<0?'-':'_');
+    }
     // These are application input codes, not terminal output controls.
     key(0,0,-1,8);   // Cursor left / Backspace
     key(2,7,-1,12);  // Cursor right / Form feed
@@ -341,7 +351,7 @@ static void program_test(P2000Machine &m,const std::string &name) {
                 "Existing test file contents changed");
     } else if(name=="CPMABORT") {
         m.pokeMemory(0x9000,0);type(m,"CPMTEST\n");
-        wait_text(m,"Write patterns [");
+        wait_text(m,std::string("Write patterns ")+char(0x0f));
         m.setKey(4,0,true);frames(m,300); // Escape prefix, held across I/O.
         m.setKey(4,0,false);frames(m,300);
         m.setKey(3,4,true); // C -> Ctrl-C through the console escape prefix.
@@ -383,12 +393,12 @@ static void program_test(P2000Machine &m,const std::string &name) {
         require(screen(m).find("Error: command")==std::string::npos,"Zork failed after LOOK");
     } else if(name=="CPMTEST") {
         m.pokeMemory(0x9000,0);type(m,"CPMTEST\n");
-        wait_text(m,"Write patterns [");
+        wait_text(m,std::string("Write patterns ")+char(0x0f));
         wait_text(m,"030/600");
         for(int i=0;i<1000 && m.peekMemory(0x9000)==0;++i)frames(m,200);
         require(m.peekMemory(0x9000)==0xa5,"CPMTEST failed");prompt(m);wait_text(m,"CPMTEST PASS");
         // Native P2000 code 5Fh draws '#'; ASCII 23h would draw sterling.
-        wait_text(m,"Read and verify [____________________] 600/600 OK");
+        wait_text(m,std::string("Read and verify ")+char(0x0f)+"____________________"+char(0x10)+" 600/600 OK");
         wait_text(m,"Random read: record 513 ...  OK");
     } else throw std::runtime_error("Unknown isolated program");
     std::cout << "PASS: isolated " << name << std::endl;

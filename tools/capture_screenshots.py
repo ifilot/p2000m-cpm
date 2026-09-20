@@ -27,7 +27,7 @@ def main():
     if len(font) != 256 * 12:
         raise ValueError('Unexpected character ROM size')
     args.output.mkdir(parents=True, exist_ok=True)
-    for name in ('boot', 'session', 'banktest', 'supercalc'):
+    for name in ('boot', 'session', 'banktest', 'keytest', 'supercalc'):
         chars = (build / f'screenshot-{name}-characters.bin').read_bytes()
         attrs = (build / f'screenshot-{name}-attributes.bin').read_bytes()
         if len(chars) != 1920 or len(attrs) != 1920:

@@ -86,7 +86,11 @@ It does not require ANSI/VT100, bank switching or any new BDOS function.
 
 SuperCalc receives these through CP/M BIOS CONIN, directly from the keyboard
 FIFO. The VT52 profile governs SuperCalc's display output only; it is not an
-input driver. Shift + numeric-pad `0` produces `=`.
+input driver. Shift + main-row `0` (X5/Y5) or keypad DEFINE/`0` (X2/Y3) produces `=`.
+The main-row minus key (X5/Y7) produces `-`, or ASCII `_` with Shift.
+CONOUT renders ASCII underscore with native video code 60h, preserving its
+ASCII byte in application input and files. See the
+[physical map audit](keyboard-reference.md#physical-nluk-map-audit-2026-09-20).
 
 The original installer and seven sample worksheets are also bundled. See
 [provenance and reproducible installation](../assets/supercalc/README.md),

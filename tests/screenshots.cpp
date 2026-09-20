@@ -37,6 +37,24 @@ int main(int argc, char **argv) {
         type(machine, "BANKTEST\n"); prompt(machine);
         require(screen(machine).find("BANKTEST PASS") != std::string::npos, "BANKTEST failed");
         capture(machine, std::string(argv[2]) + "/screenshot-banktest");
+        type(machine, "KEYTEST\n");
+        wait_text(machine, "KEYTEST - P2000M");
+        machine.setKey(4, 2, true); // A
+        machine.setKey(5, 5, true); // main-row zero / equals
+        machine.setKey(5, 7, true); // main-row minus / underscore
+        machine.setKey(9, 0, true); // left Shift
+        frames(machine, 4);
+        capture(machine, std::string(argv[2]) + "/screenshot-keytest");
+        machine.setKey(4, 2, false);
+        machine.setKey(5, 5, false);
+        machine.setKey(5, 7, false);
+        machine.setKey(9, 7, true);
+        machine.setKey(4, 0, true);
+        frames(machine, 4);
+        machine.setKey(9, 0, false);
+        machine.setKey(9, 7, false);
+        machine.setKey(4, 0, false);
+        frames(machine, 30); prompt(machine);
         sc_start(machine);
         sc_send(machine,"/L");wait_text(machine,"Enter File Name");
         sc_send(machine,"SAMPLE\n");wait_text(machine,"A(ll)");

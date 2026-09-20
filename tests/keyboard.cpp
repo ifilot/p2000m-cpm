@@ -72,7 +72,25 @@ int main(int argc,char **argv){
     // These control values are application input, including SuperCalc arrows.
     tap(m,0,0);tap(m,2,7);
     require(drain(m)==std::string("0==\x08\x0c",5),
-            "Numeric-pad DEFINE or cursor-key mapping failed");
+            "Main-row Shift+0 or cursor-key mapping failed");
+    // Independently audited keycaps: main 0 is X5/Y5; DEFINE/0 is X2/Y3.
+    // Assert actual ASCII bytes through CONIN for both physical Shift keys.
+    struct PrintedKey { unsigned row,bit; char normal,shifted; };
+    const PrintedKey printed[]={
+        {5,5,'0','='},{5,7,'-','_'},{2,3,'0','='},
+        {5,2,'+','*'},{5,3,'-','/'},{2,0,'.','.'},
+        {2,6,',',','},{7,1,'.','.'},{8,5,';','+'},
+        {7,4,']','['},{8,4,39,96},{6,7,'@',39}
+    };
+    for(auto k:printed) {
+        busy();tap(m,k.row,k.bit);
+        for(unsigned shift:{0u,7u}){
+            m.setKey(9,shift,true);tap(m,k.row,k.bit);
+            m.setKey(9,shift,false);frames(m,2);
+        }
+        require(drain(m)==std::string({k.normal,k.shifted,k.shifted}),
+                "Physical keycaps mismatch at X"+std::to_string(k.row)+" Y"+std::to_string(k.bit));
+    }
     busy();
     for(int i=0;i<3;++i){m.setKey(4,2,true);frames(m,1);m.setKey(4,2,false);frames(m,1);}
     require(queued(m)==0,"Bouncing press generated input");

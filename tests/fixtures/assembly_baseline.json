@@ -1,13 +1,13 @@
 {
-  "description": "Version 0.4.1 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16, shared release/link identity, hardened BDOS and filesystem, physical SD/SRAM activity LEDs and KiB format progress. VT52-style console parser in resident RAM; 51200-byte TPA (512 bytes reserved for terminal support). Keyboard and disk geometry unchanged. D: dashboard label changed to CALC for bundled SuperCalc2.",
+  "description": "Version 0.4.1 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16, shared release/link identity, hardened BDOS and filesystem, physical SD/SRAM activity LEDs and KiB format progress. VT52-style console parser in resident RAM; 51200-byte TPA (512 bytes reserved for terminal support). Disk geometry unchanged. D: dashboard label changed to CALC for bundled SuperCalc2. Reviewed NL/UK physical keyboard corrections and ASCII-to-native underscore/bracket/grave rendering; ROM growth 19 bytes, image sizes and TPA unchanged.",
   "artifacts": {
     "src/cartridge.asm": {
       "bytes": 9612,
-      "sha256": "506ade76b66aa750006d98c443eed7439024b9118d22b222d9b40b5c66258b93"
+      "sha256": "2b07af8bc44c51df0f5e04e8593dbcc1c3f3df35fbd3e58f227da260a09b3e56"
     },
     "src/kernel.asm": {
       "bytes": 14336,
-      "sha256": "d1baaa50c52074ce1dcfc95981317e9b55f1961c39de468886a3f0473289c1ac"
+      "sha256": "29cdccdd68046d8a379786b95162e6e77984eba41ea7eef4e1bd980c4a0b1f73"
     },
     "programs/copy/copy.asm": {
       "bytes": 510,

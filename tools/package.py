@@ -16,7 +16,7 @@ def main():
             shutil.copyfileobj(source, compressed, 1024 * 1024)
     lines = []
     for path in (BUILD / 'cartridge.bin', BUILD / 'kernel.bin', image, packed,
-                 BUILD / 'build-info.json', *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'SYNC'))):
+                 BUILD / 'build-info.json', *(BUILD / (n + '.COM') for n in ('HELLO', 'COPY', 'CPMTEST', 'RAMTEST', 'SYNC', 'KEYTEST'))):
         with path.open('rb') as source:
             digest = hashlib.file_digest(source, 'sha256').hexdigest()
         lines.append(f'{digest}  {path.name}\n')

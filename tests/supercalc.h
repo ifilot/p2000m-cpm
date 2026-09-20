@@ -2,7 +2,7 @@
 static void sc_send(P2000Machine &m,const std::string &text) {
     for(char c:text) {
         unsigned row=0,bit=0;
-        if(c=='+') { row=8;bit=4; }
+        if(c=='+') { row=8;bit=5; }
         else if(c=='(') { row=6;bit=6; }
         else if(c==')') { row=5;bit=1; }
         else { type(m,std::string(1,c));continue; }
@@ -113,7 +113,31 @@ static void sc_finish(P2000Machine &m) {
 }
 static void supercalc_scenario(P2000Machine &m,const std::string &name) {
     sc_start(m);
-    if(name=="SCCALC") {
+    if(name=="SCKEYS") {
+        // Photo/maintenance-derived physical positions, independent of type().
+        auto physical=[&](unsigned row,unsigned bit,int shift){
+            if(shift>=0)m.setKey(9,shift,true);
+            frames(m,3);m.setKey(row,bit,true);frames(m,3);
+            m.setKey(row,bit,false);frames(m,3);
+            if(shift>=0)m.setKey(9,shift,false);
+            frames(m,100);
+        };
+        for(int shift : {0,7}) {
+            physical(5,5,shift); // main-row 0/=, not keypad DEFINE
+            sc_send(m,"C3\n");sc_active(m,"C3");
+            physical(5,7,-1); // minus immediately to the right of main-row zero
+            sc_send(m,"12\n");sc_number(m,"C3",-12);
+            physical(2,3,shift); // numeric-pad DEFINE/0 is a different contact
+            sc_send(m,"A1\n");sc_active(m,"A1");
+            sc_send(m,"/S");wait_text(m,"Enter File Name");
+            sc_send(m,"KEY");physical(5,7,shift);sc_send(m,"TEST");
+            // ASCII underscore must render as native 60h, not native hash 5Fh.
+            wait_text(m,"KEY`TEST");
+            sc_send(m,"\x1b" "C");wait_text(m,"Width:");
+            sc_arrow(m,2,7);sc_active(m,"B1");
+            sc_arrow(m,0,0);sc_active(m,"A1");
+        }
+    } else if(name=="SCCALC") {
         sc_put(m,"A1","12");sc_put(m,"B1","4");
         sc_put(m,"C1","A1+B1");sc_number(m,"C1",16);
         sc_put(m,"D1","A1-B1");sc_number(m,"D1",8);

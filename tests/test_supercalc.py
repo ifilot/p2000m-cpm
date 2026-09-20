@@ -49,6 +49,9 @@ class SuperCalc(unittest.TestCase):
                 self.assertEqual(test_programs.read_cpm_file(card, 3, name),
                                  data + b'\x1a' * (-len(data) % 128), source.name)
 
+    def test_physical_zero_minus_and_underscore(self):
+        self.scenarios('SCKEYS')
+
     def test_arithmetic_and_dependency_chains(self):
         self.scenarios('SCCALC')
 

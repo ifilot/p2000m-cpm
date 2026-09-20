@@ -52,13 +52,13 @@ def main():
     kernel = (BUILD / 'kernel.bin').read_bytes()
     if len(kernel) != LAYOUT['kernel_bytes']:
         raise ValueError('Kernel length differs from memory.inc')
-    for program in ('hello', 'cpmtest', 'copy', 'ramtest', 'banktest', 'sync', *(name.lower() for name in SERIAL_NAMES)):
-        subprocess.run(['z80asm', '-I', str(ROOT / 'programs/common'), '-o', str(BUILD / (program.upper() + '.COM')),
+    for program in ('hello', 'cpmtest', 'copy', 'ramtest', 'banktest', 'sync', 'keytest', *(name.lower() for name in SERIAL_NAMES)):
+        subprocess.run(['z80asm', '-I', str(ROOT / 'programs/common'), '-I', str(ROOT / 'programs' / program), '-o', str(BUILD / (program.upper() + '.COM')),
                         str(ROOT / 'programs' / program / (program + '.asm'))], check=True)
     # Rebuildable output only; don't overwrite the user's persistent SD image.
     image = BUILD / 'p2000m-sd-template.img'
     image.unlink(missing_ok=True)
-    create_image(image, [BUILD / "HELLO.COM", BUILD / "CPMTEST.COM", BUILD / "COPY.COM", BUILD / "RAMTEST.COM", BUILD / "BANKTEST.COM", BUILD / "SYNC.COM"] + CORE_FILES,
+    create_image(image, [BUILD / "HELLO.COM", BUILD / "CPMTEST.COM", BUILD / "COPY.COM", BUILD / "RAMTEST.COM", BUILD / "BANKTEST.COM", BUILD / "SYNC.COM", BUILD / "KEYTEST.COM"] + CORE_FILES,
                  files_by_drive={2: zork, 3: SUPERCALC_FILES, **LANGUAGE_FILES,
                                  1: BDS_FILES + [BUILD / (name + '.COM') for name in SERIAL_NAMES]})
     install_kernel(image, kernel)
@@ -75,7 +75,7 @@ def main():
         for drive, files in LANGUAGE_FILES.items()}
     (BUILD / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')
     outputs = ['cartridge.bin', 'kernel.bin', 'p2000m-sd-template.img', 'p2000m-sd-template.img.gz', 'build-info.json',
-               'HELLO.COM', 'COPY.COM', 'CPMTEST.COM', 'RAMTEST.COM', 'BANKTEST.COM', 'SYNC.COM',
+               'HELLO.COM', 'COPY.COM', 'CPMTEST.COM', 'RAMTEST.COM', 'BANKTEST.COM', 'SYNC.COM', 'KEYTEST.COM',
                *(name + '.COM' for name in SERIAL_NAMES)]
     checksums = []
     for name in outputs:
