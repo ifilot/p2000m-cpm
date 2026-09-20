@@ -101,13 +101,15 @@ workspace declarations at the end of `bdos.asm` for field widths and units.
 Run these from the repository root:
 
 ```sh
+make -C programs/othello othello
 python3 tools/build.py
 python3 -m unittest discover -s tests -v
 python3 tools/test_emulator.py
 python3 tools/test_programs.py
 ```
 
-Requirements are Python 3.11+, `z80asm` (Debian syntax), and GCC/G++ with C++17.
+Requirements are Python 3.11+, `z80asm` (Debian syntax), GCC/G++ with C++17,
+and Docker for the stand-alone Z88DK image used to compile Othello.
 The six Zork COM/DAT files are bundled in `assets/zork`; their provenance is
 recorded in its [README](../assets/zork/README.md). No companion checkout is
 needed for building or testing. `--zork-dir /path/to/zork` optionally overrides

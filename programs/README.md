@@ -16,8 +16,10 @@ Each program has its own source folder and a short usage guide:
 - [SERRX](serrx/) — serial receive test
 - [BASDEMO](basdemo/) — Microsoft BASIC example
 - [CDEMO](cdemo/) — BDS C compile/link example
+- [OTHELLO](othello/) — human-versus-CPU Othello game on J: GAMES
 
-Shared assembly includes live in [common](common/). Run `python3 tools/build.py`
-from the repository root to build the COM files in `build/` and populate the
-SD image. BASIC and C example sources are installed on E: and B: respectively.
+Shared assembly includes live in [common](common/). Build Othello first, then
+run `python3 tools/build.py` from the repository root to build the remaining
+COM files and populate the SD image. BASIC and C example sources are installed
+on E: and B: respectively; Othello is installed on J:.
 See the [build guide](../docs/source-guide.md#verification) for dependencies.

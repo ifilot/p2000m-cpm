@@ -94,7 +94,7 @@ Suggested purpose labels (organizational guidance, not restrictions):
 | G: | SOURCE | Development source files and projects |
 | H: | DOCS | Documentation and text files |
 | I: | DATA | Application data and working documents |
-| J: | EXTRA 1 | Unassigned persistent storage |
+| J: | GAMES | Games and game data |
 | K: | EXTRA 2 | Unassigned persistent storage |
 | L: | SCRATCH | Temporary RAM workspace; never the only copy of important files |
 

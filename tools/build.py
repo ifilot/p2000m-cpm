@@ -25,6 +25,7 @@ LANGUAGE_FILES = {1: BDS_FILES, 4: BASIC_FILES, 5: COBOL_FILES}
 SUPERCALC_FILES = sorted(p for p in (ROOT / 'assets/supercalc').iterdir()
                          if p.suffix.upper() in ('.COM', '.OVL', '.HLP', '.DAT', '.CAL'))
 SERIAL_NAMES = ('SERPINS', 'SERTX', 'SERRX')
+OTHELLO_FILE = BUILD / 'OTHELLO.COM'
 
 
 def main():
@@ -37,6 +38,8 @@ def main():
         if not path.is_file():
             parser.error(f'Missing Zork file: {path}; specify --zork-dir')
     BUILD.mkdir(exist_ok=True)
+    if not OTHELLO_FILE.is_file():
+        parser.error('Missing build/OTHELLO.COM; run make -C programs/othello othello')
     metadata = generate(ROOT)
     exported = link_core(ROOT, BUILD)
     metadata['memory'] = exported
@@ -62,7 +65,8 @@ def main():
     image.unlink(missing_ok=True)
     create_image(image, [BUILD / "HELLO.COM", BUILD / "CPMTEST.COM", BUILD / "COPY.COM", BUILD / "RAMTEST.COM", BUILD / "BANKTEST.COM", BUILD / "SYNC.COM", BUILD / "KEYTEST.COM", BUILD / "HELP.COM", BUILD / "MORE.COM", ROOT / 'assets/mscobol/RUNCOB.COM'] + CORE_FILES,
                  files_by_drive={2: zork, 3: SUPERCALC_FILES, **LANGUAGE_FILES,
-                                 1: BDS_FILES + [BUILD / (name + '.COM') for name in SERIAL_NAMES]})
+                                 1: BDS_FILES + [BUILD / (name + '.COM') for name in SERIAL_NAMES],
+                                 9: [OTHELLO_FILE]})
     install_kernel(image, kernel)
     # Deterministic gzip envelope; SOURCE_DATE_EPOCH fixes embedded timestamps.
     with image.open('rb') as source, (BUILD / 'p2000m-sd-template.img.gz').open('wb') as target:
@@ -78,7 +82,7 @@ def main():
     (BUILD / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')
     outputs = ['cartridge.bin', 'kernel.bin', 'p2000m-sd-template.img', 'p2000m-sd-template.img.gz', 'build-info.json',
                'HELLO.COM', 'COPY.COM', 'CPMTEST.COM', 'RAMTEST.COM', 'BANKTEST.COM', 'SYNC.COM', 'KEYTEST.COM', 'HELP.COM', 'MORE.COM',
-               *(name + '.COM' for name in SERIAL_NAMES)]
+               *(name + '.COM' for name in SERIAL_NAMES), 'OTHELLO.COM']
     checksums = []
     for name in outputs:
         with (BUILD / name).open('rb') as artifact:

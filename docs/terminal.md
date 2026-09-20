@@ -104,6 +104,7 @@ The SuperCalc2 regression tests run the original binary on the real CP/M kernel
 and emulator CPU, using the physical keyboard matrix. Run them with:
 
 ```sh
+make -C programs/othello othello
 python3 tools/build.py
 python3 -m unittest discover -s tests -p test_supercalc.py -v
 ```

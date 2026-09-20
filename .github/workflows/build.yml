@@ -28,6 +28,10 @@ jobs:
         working-directory: p2000m-cpm
         run: echo "SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)" >> "$GITHUB_ENV"
 
+      - name: Build Othello with Z88DK
+        working-directory: p2000m-cpm
+        run: make -C programs/othello othello
+
       - name: Build cartridge and SD-card image
         working-directory: p2000m-cpm
         run: python3 tools/build.py

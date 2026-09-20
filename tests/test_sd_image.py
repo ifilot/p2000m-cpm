@@ -12,6 +12,9 @@ spec.loader.exec_module(sd)
 
 
 class ImageTests(unittest.TestCase):
+    def test_games_drive_label(self):
+        self.assertEqual(sd.LABELS[9], 'GAMES')
+
     def test_kernel_install_preserves_everything_outside_boot_region(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / 'card.img'

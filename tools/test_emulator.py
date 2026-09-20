@@ -84,7 +84,14 @@ def main():
         if actual != expected + b'\x1a' * (-len(expected) % 128):
             raise AssertionError(f'Bundled utility mismatch: {source.name}')
     print('PASS: all seven standard utilities are present byte-exact in the built SD image', flush=True)
-    for name in ('keyboard', 'cache', 'boot', 'cpm', 'sd_crc', 'bdos_conformance'):
+    othello = build / 'OTHELLO.COM'
+    actual = read_cpm_file(build / 'p2000m-sd-template.img', 9, b'OTHELLO COM')
+    expected = othello.read_bytes()
+    if actual != expected + b'\x1a' * (-len(expected) % 128):
+        raise AssertionError('Bundled J:OTHELLO.COM differs from the built program')
+    print('PASS: OTHELLO.COM is present byte-exact on J: GAMES', flush=True)
+    for name in ('keyboard', 'cache', 'boot', 'cpm', 'sd_crc',
+                 'bdos_conformance', 'othello_ui'):
         compile_harness(args.emulator, name)
         with tempfile.TemporaryDirectory(prefix='p2000m-cpm-') as tmp:
             card = Path(tmp) / 'writable.img'
@@ -105,7 +112,8 @@ def main():
                 oversized = Path(tmp) / 'TOOBIG.COM'
                 oversized.write_bytes(limit.read_bytes() + bytes(128))
                 files.append(oversized)
-            create_image(card, files)
+            drive_files = {9: [build / 'OTHELLO.COM']} if name == 'othello_ui' else None
+            create_image(card, files, files_by_drive=drive_files)
             install_kernel(card, (build / 'kernel.bin').read_bytes())
             original_fat = fat_digest(card)
             command = [str(build / (name + '-test')), str(args.emulator), str(build), str(card)]

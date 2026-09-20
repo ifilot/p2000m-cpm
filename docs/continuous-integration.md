@@ -19,7 +19,8 @@ their version must match `VERSION`.
 ## Stand-alone emulator tests
 
 The full suite runs using only this repository and Python 3.11+, `z80asm`,
-and GCC/G++. Its C++ harnesses use the CPU/device implementation and monitor
+GCC/G++, and Docker. Othello is compiled with the stand-alone Z88DK container;
+the C++ harnesses use the CPU/device implementation and monitor
 ROM bundled in `tests/emulator` to execute the assembled Z80 system. It needs
 no Qt, visualization libraries, emulator checkout, or `EMULATOR_TOKEN` secret.
 The [snapshot guide](../tests/emulator/README.md) records provenance and the

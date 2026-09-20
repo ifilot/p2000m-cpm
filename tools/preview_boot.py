@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 COLS, ROWS = 80, 24
 GREEN, BLACK = (0, 255, 65), (0, 0, 0)
 DRIVE_LABELS = ('SYSTEM', 'TOOLS', 'ZORK', 'CALC', 'BASIC', 'COBOL',
-                'SOURCE', 'DOCS', 'DATA', 'EXTRA 1', 'EXTRA 2', 'SCRATCH')
+                'SOURCE', 'DOCS', 'DATA', 'GAMES', 'EXTRA 2', 'SCRATCH')
 
 
 class Screen:

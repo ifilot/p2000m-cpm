@@ -9,7 +9,8 @@ P2000M. It uses the CP/M co-board, a 16 KiB boot cartridge in port 1, and an
 SD/SRAM cartridge in port 2; no floppy hardware is required.
 
 The supplied SD image includes the command processor, PIP, ASM, LOAD, DDT,
-DUMP, ED, STAT, Microsoft BASIC-80, Microsoft COBOL-80, BDS C, SuperCalc2, Zork I–III, diagnostics, and twelve
+DUMP, ED, STAT, Microsoft BASIC-80, Microsoft COBOL-80, BDS C, SuperCalc2,
+Zork I–III, Othello, diagnostics, and twelve
 drives. Drive L: is a temporary 128 KiB SRAM disk; the other drives live on SD.
 
 ## Screenshots
@@ -69,6 +70,7 @@ F>COBOL =SQUARO
 A>HELP
 A>C:
 C>ZORK1
+A>J:OTHELLO
 ```
 
 Wait for the command prompt before resetting or switching off: SD writes are

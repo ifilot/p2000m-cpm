@@ -20,7 +20,7 @@ eleven 8 MiB CP/M volumes. CP/M cannot access files in the FAT32 partition.
 | G: | SOURCE | Empty |
 | H: | DOCS | Empty |
 | I: | DATA | Empty |
-| J: | EXTRA 1 | Empty |
+| J: | GAMES | Othello |
 | K: | EXTRA 2 | Empty |
 | L: | SCRATCH | 128 KiB SRAM disk; 126 KiB usable |
 
@@ -135,6 +135,12 @@ C>ZORK1
 ```
 
 Use `ZORK2` or `ZORK3` for the other games.
+
+Start a human-versus-CPU Othello game directly from any drive:
+
+```text
+A>J:OTHELLO
+```
 
 Start Microsoft BASIC on drive E:
 
