@@ -10,6 +10,7 @@ from sd_image import create_image, install_kernel
 from build_metadata import generate
 from memory_layout import LAYOUT
 from link_core import link_core
+from games import install as install_games, load_lock, manifest as games_manifest
 
 ROOT = Path(__file__).resolve().parents[1]
 BUILD = ROOT / 'build'
@@ -25,7 +26,6 @@ LANGUAGE_FILES = {1: BDS_FILES, 4: BASIC_FILES, 5: COBOL_FILES}
 SUPERCALC_FILES = sorted(p for p in (ROOT / 'assets/supercalc').iterdir()
                          if p.suffix.upper() in ('.COM', '.OVL', '.HLP', '.DAT', '.CAL'))
 SERIAL_NAMES = ('SERPINS', 'SERTX', 'SERRX')
-OTHELLO_FILE = BUILD / 'OTHELLO.COM'
 
 
 def main():
@@ -38,8 +38,9 @@ def main():
         if not path.is_file():
             parser.error(f'Missing Zork file: {path}; specify --zork-dir')
     BUILD.mkdir(exist_ok=True)
-    if not OTHELLO_FILE.is_file():
-        parser.error('Missing build/OTHELLO.COM; run make -C programs/othello othello')
+    # Locked external programs (games.lock.toml), verified by SHA-256.
+    games = load_lock()
+    external = install_games(BUILD, games)
     metadata = generate(ROOT)
     exported = link_core(ROOT, BUILD)
     metadata['memory'] = exported
@@ -63,16 +64,19 @@ def main():
     # Rebuildable output only; don't overwrite the user's persistent SD image.
     image = BUILD / 'p2000m-sd-template.img'
     image.unlink(missing_ok=True)
+    drive_files = {2: zork, 3: SUPERCALC_FILES, **LANGUAGE_FILES,
+                   1: BDS_FILES + [BUILD / (name + '.COM') for name in SERIAL_NAMES]}
+    for drive, paths in external.items():
+        drive_files[drive] = [*drive_files.get(drive, []), *paths]
     create_image(image, [BUILD / "HELLO.COM", BUILD / "CPMTEST.COM", BUILD / "COPY.COM", BUILD / "RAMTEST.COM", BUILD / "BANKTEST.COM", BUILD / "SYNC.COM", BUILD / "KEYTEST.COM", BUILD / "HELP.COM", BUILD / "MORE.COM", ROOT / 'assets/mscobol/RUNCOB.COM'] + CORE_FILES,
-                 files_by_drive={2: zork, 3: SUPERCALC_FILES, **LANGUAGE_FILES,
-                                 1: BDS_FILES + [BUILD / (name + '.COM') for name in SERIAL_NAMES],
-                                 9: [OTHELLO_FILE]})
+                 files_by_drive=drive_files)
     install_kernel(image, kernel)
     # Deterministic gzip envelope; SOURCE_DATE_EPOCH fixes embedded timestamps.
     with image.open('rb') as source, (BUILD / 'p2000m-sd-template.img.gz').open('wb') as target:
         with gzip.GzipFile(filename='', mode='wb', fileobj=target, mtime=0) as archive:
             while chunk := source.read(1024 * 1024):
                 archive.write(chunk)
+    metadata['external_programs'] = games_manifest(games)
     metadata['zork_sources'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest() for p in zork}
     metadata['supercalc_sources'] = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
                                      for p in SUPERCALC_FILES}
@@ -82,7 +86,8 @@ def main():
     (BUILD / 'build-info.json').write_text(json.dumps(metadata, indent=2) + '\n')
     outputs = ['cartridge.bin', 'kernel.bin', 'p2000m-sd-template.img', 'p2000m-sd-template.img.gz', 'build-info.json',
                'HELLO.COM', 'COPY.COM', 'CPMTEST.COM', 'RAMTEST.COM', 'BANKTEST.COM', 'SYNC.COM', 'KEYTEST.COM', 'HELP.COM', 'MORE.COM',
-               *(name + '.COM' for name in SERIAL_NAMES), 'OTHELLO.COM']
+               *(name + '.COM' for name in SERIAL_NAMES),
+               *(path.name for paths in external.values() for path in paths)]
     checksums = []
     for name in outputs:
         with (BUILD / name).open('rb') as artifact:

@@ -1,13 +1,13 @@
 {
-  "description": "Version 0.5.1 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16, shared release/link identity, hardened BDOS and filesystem, physical SD/SRAM activity LEDs and KiB format progress. VT52-style console parser in resident RAM; 51200-byte TPA (512 bytes reserved for terminal support). Disk geometry unchanged. D: dashboard label changed to CALC for bundled SuperCalc2; J: changed from EXTRA 1 to GAMES for bundled Othello. OPEN treats an uninitialized out-of-range S2 field as extent zero for MS COBOL-80 LINK-80 compatibility. Reviewed NL/UK physical keyboard corrections and ASCII-to-native underscore/bracket/grave rendering. Boot-template drive sizes show ---- until the kernel verifies the SD layout. The Cartridge + kernel dashboard line is removed; the TPA line (row 2) shows pair verification.",
+  "description": "Version 0.5.2 raw assembly baseline, SOURCE_DATE_EPOCH=0. SD CRC7/CRC16, shared release/link identity, hardened BDOS and filesystem, physical SD/SRAM activity LEDs and KiB format progress. VT52-style console parser in resident RAM; 51200-byte TPA (512 bytes reserved for terminal support). Disk geometry unchanged. D: dashboard label changed to CALC for bundled SuperCalc2; J: changed from EXTRA 1 to GAMES for bundled Othello. OPEN treats an uninitialized out-of-range S2 field as extent zero for MS COBOL-80 LINK-80 compatibility. Reviewed NL/UK physical keyboard corrections and ASCII-to-native underscore/bracket/grave rendering. Boot-template drive sizes show ---- until the kernel verifies the SD layout. The Cartridge + kernel dashboard line is removed; the TPA line (row 2) shows pair verification.",
   "artifacts": {
     "src/cartridge.asm": {
       "bytes": 9612,
-      "sha256": "5f4c75bc041883f525d2a363e47ca7dfdb9d85ea872d96f9dcfb5e06dfab82e4"
+      "sha256": "e526268d41f47be8f6f5fbceaecf5710df376a3235572ca564729a2704394a05"
     },
     "src/kernel.asm": {
       "bytes": 14336,
-      "sha256": "43a4efa552ddff259658ffb822962cc1726bbd0092af8ec24d10ebdbbff06416"
+      "sha256": "aeb18e0c194938b6ad7774a25d2cb32c2a7eebcde49c221d3b01ac5b3d14cdf9"
     },
     "programs/copy/copy.asm": {
       "bytes": 510,

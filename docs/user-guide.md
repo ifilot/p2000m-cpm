@@ -136,7 +136,8 @@ C>ZORK1
 
 Use `ZORK2` or `ZORK3` for the other games.
 
-Start a human-versus-CPU Othello game directly from any drive:
+Start a human-versus-CPU [Othello](https://github.com/ifilot/p2000m-othello)
+game directly from any drive:
 
 ```text
 A>J:OTHELLO

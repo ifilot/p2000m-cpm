@@ -1,0 +1,16 @@
+# Immutable external programs installed on the P2000M SD CP/M image.
+# Each artifact is a GitHub release asset, verified by SHA-256 before use.
+schema = 1
+
+[[games]]
+id = "othello"
+repository = "https://github.com/ifilot/p2000m-othello"
+version = "v1.0.0"
+commit = "238713e920af9fbad125a54b74356012846b5507"
+drive = "J"
+user = 0
+
+[[games.artifacts]]
+path = "OTHELLO.COM"
+sha256 = "ac4f4a786961ee2e64b1f786cb83406b27c8b32d3b431d42c521038ff04b2b24"
+release_url = "https://github.com/ifilot/p2000m-othello/releases/download/v1.0.0/OTHELLO.COM"

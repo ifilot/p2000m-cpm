@@ -10,7 +10,7 @@ SD/SRAM cartridge in port 2; no floppy hardware is required.
 
 The supplied SD image includes the command processor, PIP, ASM, LOAD, DDT,
 DUMP, ED, STAT, Microsoft BASIC-80, Microsoft COBOL-80, BDS C, SuperCalc2,
-Zork I–III, Othello, diagnostics, and twelve
+Zork I–III, [Othello](https://github.com/ifilot/p2000m-othello), diagnostics, and twelve
 drives. Drive L: is a temporary 128 KiB SRAM disk; the other drives live on SD.
 
 Try it without hardware in the

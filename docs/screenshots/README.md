@@ -10,7 +10,6 @@ photographs of physical hardware. The original character ROM is rendered at
 To regenerate, install Pillow, then run from the repository root:
 
 ```sh
-make -C programs/othello othello
 python3 tools/build.py
 python3 tools/capture_screenshots.py
 ```
