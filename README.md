@@ -13,6 +13,10 @@ DUMP, ED, STAT, Microsoft BASIC-80, Microsoft COBOL-80, BDS C, SuperCalc2,
 Zork I–III, Othello, diagnostics, and twelve
 drives. Drive L: is a temporary 128 KiB SRAM disk; the other drives live on SD.
 
+Try it without hardware in the
+[browser emulator](https://ifilot.github.io/p2000m-cpm/), which boots the same
+cartridge ROM and SD-card image through WebAssembly.
+
 ## Screenshots
 
 Boot dashboard, captured from the emulator:

@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en" data-theme="green">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta id="theme-color" name="theme-color" content="#020604">
+  <meta id="build" name="build" content="__BUILD__">
+  <meta name="description" content="Run the Philips P2000M SD CP/M system in your browser.">
+  <title>P2000M SD CP/M — browser emulator</title>
+  <script>
+    // Apply the remembered theme before the first paint.
+    try {
+      if (localStorage.getItem("p2000m-theme") === "amber") {
+        document.documentElement.dataset.theme = "amber";
+      }
+    } catch (_error) {}
+  </script>
+  <link rel="stylesheet" href="style.css?v=__BUILD__">
+  <script defer src="keyboard.js?v=__BUILD__"></script>
+  <script defer src="p2000m-web.js?v=__BUILD__"></script>
+  <script defer src="app.js?v=__BUILD__"></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="wordmark" href="./" aria-label="P2000M SD CP/M home">
+      <span class="prompt">&gt;</span> PHILIPS P2000M<span class="cursor-mark">_</span>
+    </a>
+    <div class="header-actions">
+      <nav aria-label="Project links">
+        <a href="https://github.com/ifilot/p2000m-cpm">SOURCE</a>
+        <a href="https://github.com/ifilot/p2000m-cpm/releases/latest">DOWNLOAD</a>
+      </nav>
+      <button id="theme-toggle" class="theme-toggle" type="button" role="switch"
+              aria-checked="false" aria-label="Amber phosphor">
+        <span class="theme-option theme-green">GREEN</span>
+        <span class="theme-divider" aria-hidden="true">/</span>
+        <span class="theme-option theme-amber">AMBER</span>
+      </button>
+    </div>
+  </header>
+  <main>
+    <section class="machine" aria-label="Philips P2000M emulator">
+      <div class="machine-top">
+        <div class="drive-lights" aria-label="Emulator status">
+          <span><i id="power-light"></i> POWER</span>
+          <span><i id="disk-light"></i> SD</span>
+        </div>
+      </div>
+      <div id="terminal" class="terminal" tabindex="0" role="application"
+           aria-label="Interactive P2000M display">
+        <div class="glass">
+          <div id="loading" class="loading" aria-live="polite">
+            <span id="loading-message">INITIALISING WEBASSEMBLY…</span>
+            <span class="loading-bar"><i id="loading-progress"></i></span>
+          </div>
+          <canvas id="display-screen" class="display-screen" width="1280" height="576"
+                  aria-label="P2000M display rendered with the original 8 by 12 character generator"></canvas>
+        </div>
+      </div>
+      <div class="machine-controls">
+        <p id="status" aria-live="polite">Loading emulator…</p>
+        <label>Speed
+          <select id="speed">
+            <option value="1" selected>1× original</option>
+            <option value="4">4× turbo</option>
+            <option value="8">8× turbo</option>
+          </select>
+        </label>
+        <button id="reset" type="button">RESET</button>
+      </div>
+    </section>
+    <div class="info">
+      <section class="about" aria-labelledby="about-title">
+        <h2 id="about-title">P2000M web emulator</h2>
+        <p>This is a web-based emulator of the Philips P2000M with the CP/M co-board,
+          the P2000M SD CP/M cartridge in port 1 and the SD/SRAM cartridge in port 2.
+          It boots the same cartridge ROM and SD-card image as the latest build,
+          entirely in your browser.</p>
+        <p>Click the screen to use your keyboard. The P2000M has no Ctrl key: CP/M
+          control characters are typed as <strong>Esc</strong> followed by a letter,
+          and <strong>Esc Esc</strong> sends Escape itself. Your <strong>Ctrl</strong>
+          combinations are translated automatically, so <strong>Ctrl+C</strong>
+          works as expected. You can also paste text into the display.</p>
+        <p>The twelve drives include Microsoft BASIC-80 and COBOL-80, BDS C,
+          SuperCalc2, Zork I–III and Othello. Changes you make are kept until you
+          reload the page; drive <strong>L:</strong> is a RAM disk that Reset erases.</p>
+      </section>
+      <section class="tutorial" aria-labelledby="tutorial-title">
+        <h2 id="tutorial-title">Using CP/M</h2>
+        <p>Type a command at the <strong>A&gt;</strong> prompt and press
+          <strong>Enter</strong>. Upper or lower case both work.</p>
+        <dl>
+          <dt><code>DIR</code> <code>DIR J:</code></dt>
+          <dd>List the files on the current drive or on another drive.</dd>
+          <dt><code>C:</code></dt>
+          <dd>Switch to drive C:. The prompt changes to <strong>C&gt;</strong>.</dd>
+          <dt><code>HELLO</code> <code>J:OTHELLO</code></dt>
+          <dd>Run a program by typing its name without <code>.COM</code>, with a
+            drive prefix if it lives elsewhere.</dd>
+          <dt><code>TYPE E:BASDEMO.BAS</code></dt>
+          <dd>Show a text file. <code>MORE</code> shows it one page at a time.</dd>
+          <dt><code>PIP L:=E:BASDEMO.BAS</code></dt>
+          <dd>Copy a file, here to the RAM disk. <code>REN</code> renames files and
+            <code>ERA</code> erases them.</dd>
+          <dt><code>STAT</code> <code>HELP</code></dt>
+          <dd>Show free disk space, or the built-in quick reference.</dd>
+        </dl>
+        <p>Try <code>C:</code> then <code>ZORK1</code>, <code>D:</code> then
+          <code>SC2</code> for SuperCalc2, or <code>E:</code> then
+          <code>MBASIC BASDEMO</code>; type <code>SYSTEM</code> to leave BASIC.
+          <strong>Ctrl+C</strong> at an empty prompt restarts CP/M.</p>
+      </section>
+    </div>
+  </main>
+  <footer>
+    <p>P2000M SD CP/M <span>v__VERSION__</span></p>
+  </footer>
+</body>
+</html>

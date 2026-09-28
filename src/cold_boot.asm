@@ -28,11 +28,8 @@ cold_boot:
     xor a
     ld (3),a
     ld (4),a
-    ld hl,kernel_pair_text
-    ld de,0xf0a1
-    call 0xe00c
     ld hl,kernel_tpa_text
-    ld de,0xf0f1
+    ld de,0xf0a1
     call 0xe00c
     ld hl,boot_partitions
     call kernel_activity

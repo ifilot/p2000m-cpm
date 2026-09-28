@@ -22,16 +22,16 @@ def generate(root):
     metadata = f'  System  v{version:<9} Built {timestamp}'
     screen = design('grid3')
     screen.put(1, metadata.ljust(78))
-    screen.put(2, '  Cartridge + kernel  /  pending verification'.ljust(78))
-    screen.put(3, '  TPA     pending kernel verification'.ljust(78))
+    screen.put(2, '  TPA     pending kernel verification'.ljust(78))
     screen.item(6, 'Co-board', 'RAM switch 9000 / F000', 'SWITCHING')
     screen.item(7, 'Kernel', f'{KERNEL_RANGE}  /  SD sectors 16-{15 + LAYOUT["kernel_sectors"]}', 'WAIT')
     screen.item(9, 'Manufacturer', 'MID --  /  OEM --', 'PENDING')
     screen.item(10, 'Identity', 'Product -----  /  Serial --------', '')
     screen.item(11, 'Startup', 'SPI mode', 'STARTING')
     for row in range(13, 17):
-        for col in (18, 44, 70):
-            screen.put(row, '    --', col=col)
+        # Sizes stay unknown until the kernel has verified the SD layout.
+        line = screen.lines[row].replace(' 8 MiB', '  ----').replace('128KiB', '  ----')
+        screen.put(row, line, col=0)
     for row in range(18, 24):
         screen.put(row, ' ' * 80, col=0)
     screen.put(18, '  Preparing co-board RAM switch ...')
@@ -40,8 +40,7 @@ def generate(root):
     (out / 'boot_screen.inc').write_text(db('stock_screen', screen.chars) +
         db('stock_banner', screen.lines[0].encode('ascii') + b'\0'))
     ready = design('grid3')
-    kernel = db('kernel_pair_text', '  Cartridge + kernel  /  matched system release'.ljust(78).encode('ascii') + b'\0')
-    kernel += db('kernel_tpa_text', TPA_TEXT.ljust(78).encode('ascii') + b'\0')
+    kernel = db('kernel_tpa_text', TPA_TEXT.ljust(78).encode('ascii') + b'\0')
     for index, row in enumerate(range(13, 17)):
         kernel += db(f'drive_row_{index}', ready.lines[row][1:79].encode('ascii') + b'\0')
     (out / 'implementation.inc').write_text(db('implementation_text',

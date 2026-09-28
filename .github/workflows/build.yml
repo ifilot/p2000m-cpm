@@ -7,6 +7,9 @@ on:
 permissions:
   contents: read
 
+env:
+  EMSDK_VERSION: 6.0.10
+
 jobs:
   build-test-release:
     runs-on: ubuntu-24.04
@@ -43,6 +46,25 @@ jobs:
           python3 tools/test_emulator.py
           python3 tools/test_programs.py
 
+      - name: Install Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install "$EMSDK_VERSION"
+          "$RUNNER_TEMP/emsdk/emsdk" activate "$EMSDK_VERSION"
+
+      - name: Build and test browser emulator
+        working-directory: p2000m-cpm
+        run: |
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          python3 tools/build_site.py --output build/site
+          node tools/test_web_emulator.js build/site
+
+      - name: Upload GitHub Pages site
+        if: github.ref == 'refs/heads/master'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: p2000m-cpm/build/site
+
       - name: Verify tag matches VERSION
         if: startsWith(github.ref, 'refs/tags/')
         working-directory: p2000m-cpm
@@ -73,6 +95,25 @@ jobs:
           if-no-files-found: error
           retention-days: 14
           path: p2000m-cpm/build/release/
+
+  pages:
+    if: github.ref == 'refs/heads/master'
+    needs: build-test-release
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Deploy GitHub Pages site
+        id: deployment
+        uses: actions/deploy-pages@v4
 
   release:
     if: startsWith(github.ref, 'refs/tags/')

@@ -8,8 +8,13 @@ commit and tag, and can also be started manually. It:
 3. compiles the headless harnesses against the bundled P2000M emulator core and
    runs the boot, hardware-interface, BDOS, application, and fault-injection
    suites; and
-4. uploads the cartridge, compressed SD image, manifest, and checksums as a
+4. compiles the [browser emulator](web-emulator.md) with a pinned Emscripten
+   release, assembles its static site, and boots it headlessly in Node; and
+5. uploads the cartridge, compressed SD image, manifest, and checksums as a
    short-lived workflow artifact.
+
+Pushes to `master` also deploy the browser emulator to GitHub Pages. The
+repository's Pages source must be set to **GitHub Actions**.
 
 A tag additionally creates a GitHub Release after all tests pass. The release
 contains `cartridge.bin`, both compressed and uncompressed SD-card images,

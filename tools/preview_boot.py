@@ -49,10 +49,7 @@ def design(state):
     s.bar(0, 'P2000M SD SYSTEM')
     s.put(0, 'CP/M 2.2 compatible', col=58, inverse=True)
     s.put(1, '  System  v0.4.0     Built 2026-09-10 14:32 UTC')
-    s.put(2, '  Cartridge + kernel  /  matched system release' if ready else
-          '  Cartridge + kernel  /  kernel not loaded' if failed else
-          '  Cartridge + kernel  /  pending verification')
-    s.put(3, TPA_TEXT if ready else
+    s.put(2, TPA_TEXT if ready else
           '  TPA     pending kernel verification')
     s.border(4)
     s.item(5, 'Cartridge', '16 KiB ROM   1000-4FFF', 'OK')

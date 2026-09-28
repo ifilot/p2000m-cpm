@@ -83,7 +83,7 @@ int main(int argc, char **argv) {
         require(bootScreen.find("RECOVERED")==std::string::npos,"Boot displays recovery history");
         require(bootScreen.substr(11*80+65,12)=="          OK","SPI not shown established before kernel entry");
         require(bootScreen.find("System  v")!=std::string::npos,"Missing shared system version");
-        require(bootScreen.find("pending verification")!=std::string::npos,"Pair verified before kernel entry");
+        require(bootScreen.substr(2*80,80).find("TPA     pending kernel verification")!=std::string::npos,"Pair verified before kernel entry");
         for (const auto *stage : {"P2000M SD SYSTEM", "CP/M 2.2 compatible",
                                  "RAM enabled  /  RAM loader 7000",
                                  "SPI mode", "MID 01  /  OEM PM",
@@ -121,14 +121,13 @@ int main(int argc, char **argv) {
         frames(m,300);
         require(screen(m).find("BOOT COMPLETE") != std::string::npos,
                 "Kernel did not boot: PC=" + std::to_string(m.programCounter()) + " " + screen(m));
-        require(screen(m).find("Cartridge + kernel  /  matched system release")!=std::string::npos,
-                "Missing shared release verification");
+        require(screen(m).substr(3*80,80)==std::string(80,' '),"Dashboard row 3 is not blank");
         require(screen(m).substr(80,80)==bootScreen.substr(80,80),"Kernel replaced shared version/build identity");
         require(screen(m).find("C: ZORK") != std::string::npos &&
                 screen(m).find("L: SCRATCH (RAM) 128KiB") != std::string::npos,
                 "Missing named volume grid: " + screen(m));
         require(screen(m).substr(20*80+1,2)=="A>","Prompt not on line 21");
-        require(screen(m).substr(3*80,80).find(std::to_string(p2m_layout::tpa_limit-0x100)+" bytes")!=std::string::npos,
+        require(screen(m).substr(2*80,80).find(std::to_string(p2m_layout::tpa_limit-0x100)+" bytes")!=std::string::npos,
                 "Missing TPA capacity");
         for(unsigned row : {5u,6u,7u,9u,11u})
             require(screen(m).substr(row*80+65,12)=="          OK","Stale status suffix");
@@ -159,7 +158,7 @@ int main(int argc, char **argv) {
             frames(mismatch,700);
             require(screen(mismatch).find("update port-1 ROM")!=std::string::npos,"ROM/kernel mismatch was accepted");
             require(screen(mismatch).find("A>")==std::string::npos,"Mismatched pair reached command prompt");
-            require(screen(mismatch).find("matched system release")==std::string::npos,"Mismatched pair displayed as matched");
+            require(screen(mismatch).find(" bytes)  /  0100-")==std::string::npos,"Mismatched pair displayed as verified");
         }
         // On a read-only card, reads succeed and writes propagate rejection.
         // Corrupt only the first in-memory header/payload: each full-load retry
